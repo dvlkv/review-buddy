@@ -93,6 +93,7 @@ public enum UIScript {
                 // submitreview:<EVENT>:<body>
                 store.reviewBody = parts.dropFirst(2).joined(separator: ":")
                 _ = await store.submitReview(event: ReviewEvent(rawValue: parts[safe: 1] ?? "COMMENT") ?? .comment)
+            case "discard": await store.discardPendingReview()
             case "ensurewt": _ = try? await store.ensureWorktree()
             case "localcommit":
                 // Makes a fix commit in the PR worktree (stands in for "Fix it" without a Claude run).

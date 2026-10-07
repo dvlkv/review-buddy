@@ -124,6 +124,10 @@ struct GraphQLEnvelope<T: Decodable>: Decodable {
     var errors: [GraphQLErrorDTO]?
 }
 
+struct GraphQLErrorsOnly: Decodable {
+    var errors: [GraphQLErrorDTO]?
+}
+
 struct GraphQLErrorDTO: Decodable {
     var message: String
     var type: String?

@@ -627,6 +627,7 @@ public final class PRStore {
         do {
             try await services.github.deleteReview(reviewId: id)
             pendingReviewId = nil
+            submitState = .idle
             threads = threads.filter { !$0.value.isPending }
             for (k, t) in threads { threads[k]?.comments = t.comments.filter { !$0.isPending } }
             rebuildLayout()

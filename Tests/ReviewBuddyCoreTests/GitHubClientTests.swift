@@ -134,6 +134,39 @@ func makeClient(_ handler: @escaping @Sendable (URLRequest, String, [String: Any
         await #expect(throws: GitHubError.notFound) { _ = try await c2.search("x") }
     }
 
+    /// Real GitHub response for approving your own PR: data present but null, plus errors.
+    @Test func refusedMutationWithNullDataThrowsGitHubMessage() async {
+        let (c, _) = makeClient { _, _, _ in
+            (200, #"{"data":{"submitPullRequestReview":null},"errors":[{"type":"UNPROCESSABLE","path":["submitPullRequestReview"],"message":"Could not approve for pull request review. Can not approve your own pull request"}]}"#)
+        }
+        do {
+            try await c.submitReview(reviewId: "R", event: .approve, body: "")
+            Issue.record("expected an error")
+        } catch let e as GitHubError {
+            #expect(e == .graphQL(["Could not approve for pull request review. Can not approve your own pull request"]))
+        } catch {
+            Issue.record("wrong error \(error)")
+        }
+    }
+
+    @Test func refusedResolveThrowsInsteadOfDecodingError() async {
+        let (c, _) = makeClient { _, _, _ in
+            (200, #"{"data":{"resolveReviewThread":null},"errors":[{"type":"FORBIDDEN","message":"Resource not accessible"}]}"#)
+        }
+        await #expect(throws: GitHubError.graphQL(["Resource not accessible"])) {
+            _ = try await c.setResolved(threadId: "T", resolved: true)
+        }
+    }
+
+    @Test func queryKeepsPartialDataDespiteErrors() async throws {
+        // A search where one result is inaccessible still returns the others.
+        let (c, _) = makeClient { _, _, _ in
+            (200, #"{"data":{"search":{"nodes":[{"number":1,"title":"t","repository":{"name":"r","owner":{"login":"o"}},"updatedAt":"2026-01-01T00:00:00Z"},{}]}},"errors":[{"type":"FORBIDDEN","message":"no access to one repo"}]}"#)
+        }
+        let r = try await c.search("x")
+        #expect(r.count == 1)
+    }
+
     @Test func httpErrors() async {
         let (c, _) = makeClient { _, _, _ in (401, "unauthorized") }
         await #expect(throws: GitHubError.notAuthenticated) { _ = try await c.search("x") }

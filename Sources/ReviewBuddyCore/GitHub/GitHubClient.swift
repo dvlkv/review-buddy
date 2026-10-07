@@ -143,14 +143,24 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
             if http.statusCode == 401 { (tokens as? GHTokenProvider)?.invalidate(); throw GitHubError.notAuthenticated }
             throw GitHubError.http(http.statusCode, String(decoding: data.prefix(500), as: UTF8.self))
         }
-        let envelope = try Self.decoder.decode(GraphQLEnvelope<T>.self, from: data)
-        if let errors = envelope.errors, !errors.isEmpty {
-            if envelope.data == nil || errors.contains(where: { $0.type == "NOT_FOUND" }) {
-                if errors.contains(where: { $0.type == "NOT_FOUND" }) { throw GitHubError.notFound }
-                throw GitHubError.graphQL(errors.map(\.message))
-            }
+        // Check errors before decoding `data`: a refused mutation comes back as
+        // {"data": {"mutationName": null}, "errors": [...]}, which must be a failure
+        // with GitHub's message (e.g. "Can not approve your own pull request").
+        let errors = (try? Self.decoder.decode(GraphQLErrorsOnly.self, from: data))?.errors ?? []
+        let isMutation = query.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("mutation")
+        if !errors.isEmpty {
+            if errors.contains(where: { $0.type == "NOT_FOUND" }) { throw GitHubError.notFound }
+            if isMutation { throw GitHubError.graphQL(errors.map(\.message)) }
         }
-        guard let d = envelope.data else { throw GitHubError.graphQL(["Empty response"]) }
+        let envelope: GraphQLEnvelope<T>
+        do {
+            envelope = try Self.decoder.decode(GraphQLEnvelope<T>.self, from: data)
+        } catch {
+            // Queries tolerate partial errors, but not when the data we need is missing.
+            if !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
+            throw error
+        }
+        guard let d = envelope.data else { throw GitHubError.graphQL(errors.isEmpty ? ["Empty response"] : errors.map(\.message)) }
         return d
     }
 
