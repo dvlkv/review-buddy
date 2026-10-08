@@ -84,6 +84,9 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
 
     public func pullRequest(_ ref: PRRef) async throws -> PRDetail { record("pullRequest"); return lock.withLock { detail } }
     public func diff(_ ref: PRRef) async throws -> Data { record("diff"); return diffData }
+    public func headOid(_ ref: PRRef) async throws -> String { record("headOid"); return lock.withLock { detail.headOid } }
+    /// Simulates a push to the PR (demo and tests).
+    public func simulatePush(headOid: String) { lock.withLock { detail.headOid = headOid } }
     public func fileContents(owner: String, repo: String, path: String, ref: String) async throws -> Data {
         record("fileContents")
         let lines = (1...400).map { "    // \(path) line \($0)" }
@@ -110,6 +113,23 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
     public func reply(threadId: String, reviewId: String?, body: String) async throws -> ReviewComment {
         record("reply")
         return ReviewComment(id: newId("C"), body: body, author: "you", createdAt: Date(), isPending: reviewId != nil, viewerDidAuthor: true)
+    }
+
+    public func addSingleComment(ref: PRRef, commitId: String, anchor: CodeAnchor, body: String) async throws {
+        record("addSingleComment")
+        let t = ReviewThread(id: newId("T"), path: anchor.path, line: anchor.endLine,
+                             startLine: anchor.isMultiline ? anchor.startLine : nil, side: anchor.side,
+                             comments: [ReviewComment(id: newId("C"), databaseId: lock.withLock { nextId }, body: body, author: "you",
+                                                      createdAt: Date(), viewerDidAuthor: true)])
+        lock.withLock { detail.threads.append(t) }
+    }
+
+    public func replySingle(ref: PRRef, threadId: String, commentDatabaseId: Int, body: String) async throws {
+        record("replySingle")
+        let c = ReviewComment(id: newId("C"), body: body, author: "you", createdAt: Date(), viewerDidAuthor: true)
+        lock.withLock {
+            if let i = detail.threads.firstIndex(where: { $0.id == threadId }) { detail.threads[i].comments.append(c) }
+        }
     }
 
     public func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment {

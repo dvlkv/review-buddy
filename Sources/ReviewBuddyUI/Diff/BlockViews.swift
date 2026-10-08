@@ -173,10 +173,18 @@ struct InlineComposer: View {
     @State private var preview = false
     @FocusState private var focused: Bool
 
-    func submit() {
+    func submit(single: Bool = false) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !composer.isSubmitting else { return }
         store.updateComposer(composer.id, text: text)
-        Task { await store.submitComposer(composer.id) }
+        Task { await store.submitComposer(composer.id, single: single) }
+    }
+
+    /// GitHub's "Add single comment": only while no review is pending.
+    var offersSingle: Bool {
+        switch composer.kind {
+        case .newThread, .reply: store.pendingReviewId == nil
+        case .edit: false
+        }
     }
 
     /// 80–300 pt, growing by one line per newline (long wrapped lines scroll inside).
@@ -188,7 +196,7 @@ struct InlineComposer: View {
     var submitTitle: String {
         switch composer.kind {
         case .newThread: store.pendingReviewId == nil ? "Start a review" : "Add review comment"
-        case .reply: "Reply"
+        case .reply: store.pendingReviewId == nil ? "Start a review" : "Add review comment"
         case .edit: "Update comment"
         }
     }
@@ -231,7 +239,10 @@ struct InlineComposer: View {
                         // (~4 ms every time a composer opens).
                         .onKeyPress(keys: [.return, .escape], phases: .down) { press in
                             if press.key == .escape { store.cancelComposer(composer.id); return .handled }
-                            if press.modifiers.contains(.command) { submit(); return .handled }
+                            if press.modifiers.contains(.command) {
+                                submit(single: offersSingle && press.modifiers.contains(.shift))
+                                return .handled
+                            }
                             return .ignored
                         }
                 }
@@ -242,11 +253,18 @@ struct InlineComposer: View {
                 Text(err).font(.system(size: 12)).foregroundStyle(Color.ghDel)
             }
             HStack {
-                Text("Markdown supported · ⌘↩ to submit").font(.system(size: 11)).foregroundStyle(Color.ghMuted)
+                Text(offersSingle ? "Markdown · ⌘↩ review · ⇧⌘↩ single" : "Markdown supported · ⌘↩ to submit")
+                    .font(.system(size: 11)).foregroundStyle(Color.ghMuted).lineLimit(1)
                 Spacer()
                 Button("Cancel") { store.cancelComposer(composer.id) }
                     .buttonStyle(GHButtonStyle(compact: true))
-                    
+                if offersSingle {
+                    Button("Add single comment") { submit(single: true) }
+                        .buttonStyle(GHButtonStyle(compact: true))
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || composer.isSubmitting)
+                        .help("Publish now, outside a review (⇧⌘↩)")
+                }
+
                 Button { submit() } label: {
                     if composer.isSubmitting { ProgressView().controlSize(.small) } else { Text(submitTitle) }
                 }

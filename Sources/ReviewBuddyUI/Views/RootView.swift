@@ -46,6 +46,7 @@ public struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .rbToggleDiscussPanel)) { _ in app.showDiscussPanel.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.inbox?.refreshIfStale()
+            Task { await app.current?.checkForUpdates() }
         }
         // `app.showSidebar` (menu, ⌃⌘S) and the split view (system button, dragging) stay in sync.
         .onChange(of: app.showSidebar) { _, show in

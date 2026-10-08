@@ -158,6 +158,9 @@ public final class PRStore {
     public private(set) var worktreeState: WorktreeState = .idle
     public private(set) var localCommits: [CommitInfo] = []
     public private(set) var remoteAhead = 0
+    /// PR head on GitHub as of the last update check; differs from `detail.headOid` once pushed to.
+    public internal(set) var remoteHeadOid: String?
+    @ObservationIgnored private var lastUpdateCheck: Date?
     public private(set) var pushState: TaskState = .idle
 
     @ObservationIgnored public weak var view: DiffViewDriving?
@@ -191,6 +194,7 @@ public final class PRStore {
             }()
             let detail = try await detailTask
             self.detail = detail
+            self.remoteHeadOid = nil
             self.pendingReviewId = detail.pendingReviewId
             self.threads = Dictionary(uniqueKeysWithValues: detail.threads.map { ($0.id, $0) })
             self.viewed = Set(detail.files.filter { $0.viewed == .viewed }.map(\.path))
@@ -253,11 +257,27 @@ public final class PRStore {
         }
     }
 
+    /// Reloads the PR from GitHub and brings the local checkout up to date with it.
     public func refresh() async {
         let scrollRow = view?.topVisibleRow
         await load()
         if let scrollRow, let layout, scrollRow < layout.rowCount { view?.scrollToRow(scrollRow, select: false) }
-        await refreshGitState()
+        await refreshGitState(updateCheckout: true)
+    }
+
+    /// New commits on GitHub that this view (diff, checkout) doesn't have yet.
+    public var isOutdated: Bool {
+        guard let remoteHeadOid, let detail else { return false }
+        return remoteHeadOid != detail.headOid
+    }
+
+    /// Polls GitHub's PR head (cheap) so the UI can offer a refresh; at most every 30s unless forced.
+    public func checkForUpdates(force: Bool = false) async {
+        guard loadState == .loaded, detail != nil else { return }
+        if !force, let last = lastUpdateCheck, Date().timeIntervalSince(last) < 30 { return }
+        lastUpdateCheck = Date()
+        guard let oid = try? await services.github.headOid(ref), loadState == .loaded else { return }
+        if oid != remoteHeadOid { remoteHeadOid = oid }
     }
 
     private func recomputeThreadCounts() {
@@ -596,13 +616,28 @@ public final class PRStore {
         return id
     }
 
-    public func submitComposer(_ id: String) async {
+    /// Posts the composer. `single` publishes it right away instead of adding it to the
+    /// pending review (only offered while there is no pending review, as on GitHub).
+    public func submitComposer(_ id: String, single: Bool = false) async {
         guard var c = composers[id], !c.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         c.isSubmitting = true
         c.error = nil
         composers[id] = c
         do {
             switch c.kind {
+            case .newThread(let anchor) where single:
+                guard let d = detail else { return }
+                try await services.github.addSingleComment(ref: ref, commitId: d.headOid, anchor: anchor, body: c.text)
+                try await reloadThreads()
+            case .reply(let threadId) where single:
+                if let dbId = threads[threadId]?.comments.first?.databaseId {
+                    try await services.github.replySingle(ref: ref, threadId: threadId, commentDatabaseId: dbId, body: c.text)
+                    try await reloadThreads()
+                } else {
+                    // No REST id (shouldn't happen for GitHub data): a reply outside a review.
+                    let comment = try await services.github.reply(threadId: threadId, reviewId: nil, body: c.text)
+                    threads[threadId]?.comments.append(comment)
+                }
             case .newThread(let anchor):
                 let review = try await ensurePendingReview()
                 guard let prId = detail?.nodeId else { return }
@@ -624,6 +659,13 @@ public final class PRStore {
             composers[id]?.isSubmitting = false
             composers[id]?.error = error.localizedDescription
         }
+    }
+
+    /// Re-reads threads from GitHub (the REST single-comment endpoints don't return the thread).
+    private func reloadThreads() async throws {
+        let d = try await services.github.pullRequest(ref)
+        threads = Dictionary(uniqueKeysWithValues: d.threads.map { ($0.id, $0) })
+        detail?.threads = d.threads
     }
 
     public func deleteComment(threadId: String, commentId: String) async {
@@ -888,9 +930,17 @@ public final class PRStore {
         if worktreeState.worktree == wt { worktreeState = .idle }
     }
 
-    public func refreshGitState() async {
+    /// Fetches the PR into the checkout. With `updateCheckout`, also fast-forwards it to the
+    /// new head when that loses nothing (no local fix commits, no uncommitted changes).
+    public func refreshGitState(updateCheckout: Bool = false) async {
         guard let wt = worktreeState.worktree, let w = services.worktrees else { return }
-        if let detail { try? await w.fetchPR(repoDir: wt.repoDir, pr: detail) }
+        if let detail {
+            if updateCheckout {
+                _ = try? await w.ensureWorktree(for: detail, localClone: services.settings.localClone(for: ref.nameWithOwner))
+            } else {
+                try? await w.fetchPR(repoDir: wt.repoDir, pr: detail)
+            }
+        }
         localCommits = (try? await w.localCommits(wt)) ?? []
         remoteAhead = (try? await w.remoteAhead(wt)) ?? 0
     }

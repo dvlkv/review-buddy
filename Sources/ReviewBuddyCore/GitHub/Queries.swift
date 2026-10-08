@@ -95,6 +95,13 @@ enum Queries {
     }
     """
 
+    /// Cheap poll for "was the PR pushed to since we loaded it".
+    static let headOid = """
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid } }
+    }
+    """
+
     static let closePullRequest = """
     mutation($id: ID!) { closePullRequest(input: { pullRequestId: $id }) { pullRequest { state } } }
     """
@@ -329,6 +336,11 @@ struct CheckContextDTO: Decodable {
         }
         return nil
     }
+}
+
+struct HeadOidData: Decodable {
+    struct Repo: Decodable { struct PR: Decodable { var headRefOid: String }; var pullRequest: PR? }
+    var repository: Repo
 }
 
 struct AddCommentData: Decodable {

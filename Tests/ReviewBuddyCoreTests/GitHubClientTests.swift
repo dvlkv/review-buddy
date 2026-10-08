@@ -186,6 +186,22 @@ func makeClient(_ handler: @escaping @Sendable (URLRequest, String, [String: Any
         await #expect(throws: (any Error).self) { try await c2.mergePullRequest(id: "PR_1", method: .merge, expectedHeadOid: "old") }
     }
 
+    @Test func singleCommentAndReplyUseRESTRightAway() async throws {
+        let (c, t) = makeClient { _, _, _ in (201, #"{"id":9}"#) }
+        let anchor = CodeAnchor(path: "a.swift", side: .right, startLine: 3, endLine: 5)
+        try await c.addSingleComment(ref: PRRef(owner: "o", repo: "r", number: 7), commitId: "abc", anchor: anchor, body: "hi")
+        try await c.replySingle(ref: PRRef(owner: "o", repo: "r", number: 7), threadId: "T", commentDatabaseId: 42, body: "yo")
+        #expect(t.sent[0].request.url?.path == "/repos/o/r/pulls/7/comments")
+        let json = try JSONSerialization.jsonObject(with: t.sent[0].request.httpBody!) as! [String: Any]
+        #expect(json["commit_id"] as? String == "abc" && json["line"] as? Int == 5 && json["start_line"] as? Int == 3)
+        #expect(json["side"] as? String == "RIGHT")
+        #expect(t.sent[1].request.url?.path == "/repos/o/r/pulls/7/comments/42/replies")
+        let (c2, _) = makeClient { _, _, _ in (422, #"{"message":"Validation Failed","errors":[{"message":"line must be part of the diff"}]}"#) }
+        await #expect(throws: GitHubError.graphQL(["Validation Failed", "line must be part of the diff"])) {
+            try await c2.addSingleComment(ref: PRRef(owner: "o", repo: "r", number: 7), commitId: "abc", anchor: anchor, body: "hi")
+        }
+    }
+
     @Test func closeAndReopenMutations() async throws {
         let (c, t) = makeClient { _, _, _ in (200, #"{"data":{"closePullRequest":{"pullRequest":{"state":"CLOSED"}}}}"#) }
         try await c.setPullRequestClosed(id: "PR_1", closed: true)

@@ -123,6 +123,7 @@ public final class AppModel {
     public var showPushSheet = false
     public var startupError: String?
     @ObservationIgnored private var cache: [PRRef: PRStore] = [:]
+    @ObservationIgnored private var updateTimer: Timer?
     @ObservationIgnored private var cacheOrder: [PRRef] = []
 
     public init() {}
@@ -172,12 +173,17 @@ public final class AppModel {
         let inbox = InboxStore(services: services)
         self.inbox = inbox
         inbox.startAutoRefresh()
+        updateTimer?.invalidate()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.current?.checkForUpdates() }
+        }
     }
 
     public func open(_ ref: PRRef) async {
         guard let services else { return }
         if let cached = cache[ref] {
             current = cached
+            await cached.checkForUpdates()
             return
         }
         let store = PRStore(ref: ref, services: services)

@@ -20,6 +20,7 @@ struct OverviewView: View {
                 .labelsHidden()
                 .fixedSize()
 
+                OutdatedBar(store: store)
                 PreReviewCard(store: store)
 
                 switch tab {

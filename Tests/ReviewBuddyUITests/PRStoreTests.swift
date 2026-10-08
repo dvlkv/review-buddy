@@ -220,6 +220,53 @@ import Testing
 }
 
 @MainActor
+@Suite struct SingleCommentTests {
+    @Test func singleCommentPublishesWithoutReview() async throws {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        #expect(s.pendingReviewId == nil)
+        s.select(file: 1, side: .right, line: 13, extend: false)
+        s.startComment()
+        let c = s.composers.values.first!
+        s.updateComposer(c.id, text: "nit")
+        await s.submitComposer(c.id, single: true)
+        #expect(s.composers.isEmpty)
+        #expect(s.pendingReviewId == nil) // no review started
+        let t = try #require(s.threads.values.first { $0.comments.first?.body == "nit" })
+        #expect(t.comments.allSatisfy { !$0.isPending })
+        #expect(h.demo.calls.contains("addSingleComment") && !h.demo.calls.contains("startReview"))
+
+        s.startReply(threadId: t.id)
+        let r = s.composers.values.first!
+        s.updateComposer(r.id, text: "done")
+        await s.submitComposer(r.id, single: true)
+        #expect(s.threads[t.id]?.comments.map(\.body) == ["nit", "done"])
+        #expect(s.pendingReviewId == nil)
+    }
+}
+
+@MainActor
+@Suite struct UpdateCheckTests {
+    @Test func detectsPushAndRefreshUpdatesCheckout() async throws {
+        let h = Harness()
+        await h.load()
+        _ = try await h.store.ensureWorktree()
+        await h.store.checkForUpdates(force: true)
+        #expect(!h.store.isOutdated)
+        h.demo.simulatePush(headOid: String(repeating: "c", count: 40))
+        await h.store.checkForUpdates(force: true)
+        #expect(h.store.isOutdated)
+        let before = h.worktrees.calls.filter { $0 == "ensureWorktree" }.count
+        await h.store.refresh()
+        #expect(!h.store.isOutdated)
+        #expect(h.store.detail?.headOid == String(repeating: "c", count: 40))
+        // Refresh goes through ensureWorktree, which fast-forwards a clean checkout.
+        #expect(h.worktrees.calls.filter { $0 == "ensureWorktree" }.count == before + 1)
+    }
+}
+
+@MainActor
 @Suite struct MergeTests {
     @Test func mergeReloadsAsMerged() async {
         let h = Harness()

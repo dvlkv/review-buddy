@@ -90,10 +90,16 @@ public protocol GitHubAPI: Sendable {
     func search(_ query: String) async throws -> [PRSummary]
     func pullRequest(_ ref: PRRef) async throws -> PRDetail
     func diff(_ ref: PRRef) async throws -> Data
+    /// The PR head commit on GitHub right now.
+    func headOid(_ ref: PRRef) async throws -> String
     func fileContents(owner: String, repo: String, path: String, ref: String) async throws -> Data
     func startReview(pullRequestId: String) async throws -> String
     func addThread(pullRequestId: String, reviewId: String, anchor: CodeAnchor, body: String) async throws -> ReviewThread
     func reply(threadId: String, reviewId: String?, body: String) async throws -> ReviewComment
+    /// A line comment published right away, outside any review (GitHub's "Add single comment").
+    func addSingleComment(ref: PRRef, commitId: String, anchor: CodeAnchor, body: String) async throws
+    /// A thread reply published right away; `commentDatabaseId` is the thread's first comment.
+    func replySingle(ref: PRRef, threadId: String, commentDatabaseId: Int, body: String) async throws
     /// A PR (issue) comment, outside any review.
     func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment
     /// Merges the PR; fails if the head moved past `expectedHeadOid` since it was loaded.
@@ -219,6 +225,12 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
                      body: c.body, createdAt: c.createdAt, url: c.url)
     }
 
+    public func headOid(_ ref: PRRef) async throws -> String {
+        let r: HeadOidData = try await graphql(Queries.headOid, ["owner": ref.owner, "name": ref.repo, "number": ref.number])
+        guard let pr = r.repository.pullRequest else { throw GitHubError.notFound }
+        return pr.headRefOid
+    }
+
     public func diff(_ ref: PRRef) async throws -> Data {
         let url = apiBase.appendingPathComponent("repos/\(ref.owner)/\(ref.repo)/pulls/\(ref.number)")
         let r = try await request(url, accept: "application/vnd.github.diff")
@@ -265,6 +277,35 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
     public func reply(threadId: String, reviewId: String?, body: String) async throws -> ReviewComment {
         let r: ReplyData = try await graphql(Queries.reply, ["thread": threadId, "review": reviewId, "body": body])
         return r.addPullRequestReviewThreadReply.comment.toComment()
+    }
+
+    /// POSTs JSON to a REST endpoint; GraphQL has no "publish one comment now" mutation.
+    func restPost(_ path: String, _ json: [String: Any]) async throws {
+        var r = try await request(apiBase.appendingPathComponent(path), accept: "application/vnd.github+json")
+        r.httpMethod = "POST"
+        r.httpBody = try JSONSerialization.data(withJSONObject: json)
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, http) = try await transport.send(r)
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { (tokens as? GHTokenProvider)?.invalidate(); throw GitHubError.notAuthenticated }
+            if http.statusCode == 404 { throw GitHubError.notFound }
+            struct Msg: Decodable { var message: String; var errors: [Detail]?; struct Detail: Decodable { var message: String? } }
+            if let m = try? Self.decoder.decode(Msg.self, from: data) {
+                throw GitHubError.graphQL([m.message] + (m.errors ?? []).compactMap(\.message))
+            }
+            throw GitHubError.http(http.statusCode, String(decoding: data.prefix(500), as: UTF8.self))
+        }
+    }
+
+    public func addSingleComment(ref: PRRef, commitId: String, anchor: CodeAnchor, body: String) async throws {
+        var json: [String: Any] = ["body": body, "commit_id": commitId, "path": anchor.path,
+                                   "line": anchor.endLine, "side": anchor.side.rawValue]
+        if anchor.isMultiline { json["start_line"] = anchor.startLine; json["start_side"] = anchor.side.rawValue }
+        try await restPost("repos/\(ref.owner)/\(ref.repo)/pulls/\(ref.number)/comments", json)
+    }
+
+    public func replySingle(ref: PRRef, threadId: String, commentDatabaseId: Int, body: String) async throws {
+        try await restPost("repos/\(ref.owner)/\(ref.repo)/pulls/\(ref.number)/comments/\(commentDatabaseId)/replies", ["body": body])
     }
 
     public func updateComment(id: String, body: String) async throws -> ReviewComment {

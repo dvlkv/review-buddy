@@ -72,6 +72,7 @@ public enum UIScript {
                 let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
                 try? (old + line).write(to: url, atomically: true, encoding: .utf8)
             case "admin": store.detail?.status?.viewerCanMergeAsAdmin = true
+            case "outdated": store.remoteHeadOid = String(repeating: "c", count: 40)
             case "noconversation": store.detail?.conversation = nil
             case "mergestate":
                 // Pretend GitHub reports another merge state, e.g. `mergestate:CLEAN`.

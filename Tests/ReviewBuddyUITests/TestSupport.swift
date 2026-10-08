@@ -164,6 +164,7 @@ final class FlakyGitHub: GitHubAPI, @unchecked Sendable {
     }
     func pullRequest(_ ref: PRRef) async throws -> PRDetail { try await base.pullRequest(ref) }
     func diff(_ ref: PRRef) async throws -> Data { try await base.diff(ref) }
+    func headOid(_ ref: PRRef) async throws -> String { try await base.headOid(ref) }
     func fileContents(owner: String, repo: String, path: String, ref: String) async throws -> Data {
         try await base.fileContents(owner: owner, repo: repo, path: path, ref: ref)
     }
@@ -173,6 +174,12 @@ final class FlakyGitHub: GitHubAPI, @unchecked Sendable {
     }
     func reply(threadId: String, reviewId: String?, body: String) async throws -> ReviewComment {
         try await base.reply(threadId: threadId, reviewId: reviewId, body: body)
+    }
+    func addSingleComment(ref: PRRef, commitId: String, anchor: CodeAnchor, body: String) async throws {
+        try await base.addSingleComment(ref: ref, commitId: commitId, anchor: anchor, body: body)
+    }
+    func replySingle(ref: PRRef, threadId: String, commentDatabaseId: Int, body: String) async throws {
+        try await base.replySingle(ref: ref, threadId: threadId, commentDatabaseId: commentDatabaseId, body: body)
     }
     func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment {
         try await base.addComment(subjectId: subjectId, body: body)

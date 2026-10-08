@@ -231,11 +231,33 @@ struct SummaryCard: View {
     }
 }
 
+/// "New commits were pushed" with a Refresh button (reloads the diff and updates the checkout).
+struct OutdatedBar: View {
+    let store: PRStore
+
+    var body: some View {
+        if store.isOutdated {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Color.ghAccent)
+                Text("This pull request has new commits on GitHub.")
+                Spacer()
+                Button("Refresh") { Task { await store.refresh() } }
+                    .buttonStyle(GHButtonStyle(kind: .primary, compact: true))
+                    .help("Reload the diff and update the local checkout (⌘R)")
+            }
+            .font(.system(size: 12))
+            .padding(8)
+            .background(Color.ghAccent.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+}
+
 /// Local fix commits and remote divergence (§5.1, §5.4).
 struct GitStatusBanner: View {
     let store: PRStore
 
     var body: some View {
+        OutdatedBar(store: store)
         if store.remoteAhead > 0 && !store.localCommits.isEmpty {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.triangle.branch").foregroundStyle(Color.ghAttention)
@@ -243,6 +265,16 @@ struct GitStatusBanner: View {
                 Spacer()
                 Button("Rebase local commits") { Task { await store.rebaseOntoRemote() } }
                     .buttonStyle(GHButtonStyle(compact: true))
+            }
+            .font(.system(size: 12))
+            .padding(8)
+            .background(Color.ghAttention.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        } else if store.remoteAhead > 0 && !store.isOutdated {
+            // Refresh fast-forwards a clean checkout; uncommitted edits there block that.
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.branch").foregroundStyle(Color.ghAttention)
+                Text("The local checkout is \(store.remoteAhead) commit\(store.remoteAhead == 1 ? "" : "s") behind the PR: it has uncommitted changes, so it wasn't updated.")
+                Spacer()
             }
             .font(.system(size: 12))
             .padding(8)

@@ -911,16 +911,21 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
     }
 
     func mouseMoved(to p: CGPoint?) {
-        let new = p.flatMap { hit(at: $0) }.map { (row: $0.row, side: $0.side) }
-        if new?.row == hover?.row && new?.side == hover?.side { return }
-        hover = new
-        positionHoverPlus()
-        var hand = new != nil
+        let h = p.flatMap { hit(at: $0) }
+        let new = h.map { (row: $0.row, side: $0.side) }
+        if new?.row != hover?.row || new?.side != hover?.side {
+            hover = new
+            positionHoverPlus()
+        }
+        // Set on every move: header buttons share one row, so the row alone can't tell.
+        var hand = h?.inGutter == true
+        var text = h != nil && !hand
         if let p, let layout {
             let r = row(at: p)
             if r >= 0, r < layout.rowCount {
                 let lr = layout.rows[r]
                 if lr.kind == .fileHeader, let hits = headerHits[Int(lr.file)] {
+                    text = false
                     let local = CGPoint(x: p.x, y: p.y - offsets[r])
                     hand = hits.viewed.contains(local) || hits.chevron.contains(local) || hits.copy.contains(local)
                 } else if lr.kind == .hunkHeader || lr.kind == .expandFooter {
@@ -931,7 +936,7 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
                 }
             }
         }
-        (hand ? NSCursor.pointingHand : NSCursor.arrow).set()
+        (hand ? NSCursor.pointingHand : text ? NSCursor.iBeam : NSCursor.arrow).set()
     }
 
     private func positionHoverPlus() {
