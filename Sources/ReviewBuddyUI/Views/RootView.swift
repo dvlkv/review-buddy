@@ -21,6 +21,7 @@ public struct RootView: View {
                 if let pr = app.current, pr.diff != nil { FileTreeView(store: pr).id(ObjectIdentifier(pr)) }
                 else { Color.clear }
             }
+            .background { if UIScript.opaqueChrome { Color.ghCanvas.ignoresSafeArea() } }
             .navigationSplitViewColumnWidth(min: 180, ideal: 250, max: 420)
         } detail: {
             // The Discuss panel is a plain column, not `.inspector`: on macOS 26 the

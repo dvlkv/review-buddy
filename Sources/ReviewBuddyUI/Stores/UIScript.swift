@@ -8,6 +8,9 @@ import ReviewBuddyCore
 /// Snapshots render the key window into PNGs via `cacheDisplay`.
 @MainActor
 public enum UIScript {
+    /// Screenshots: offscreen rendering can't draw Liquid Glass, so the tree column goes opaque.
+    @MainActor public static var opaqueChrome = false
+
     public static func run(app: AppModel, script: String, dir: URL) async {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // `nopr;…` runs inbox/sidebar-only commands without waiting for a PR to render.
@@ -89,6 +92,38 @@ public enum UIScript {
                     store.scrollTo(anchor: CodeAnchor(path: store.files[fi].path, side: .right, startLine: line, endLine: line))
                     (store.view as? DiffTableCoordinator)?.redrawVisible()
                     (store.view as? DiffTableCoordinator)?.updateSelectionBar()
+                }
+            case "opaque": opaqueChrome = true
+            case "demosummary":
+                // README screenshots: a realistic summary for the demo PR.
+                let f = store.files
+                store.setSummary(AISummary(
+                    summary: "Moves user fetching to `async`/`await` and adds a shared `DEFAULT_TIMEOUT`. "
+                        + "`fetchUser` now returns `null` for missing users instead of throwing, and every call site "
+                        + "is updated to handle it. Scoring moves into `Result` so it's computed once per item.",
+                    readingOrder: [.init(path: f[0].path, reason: "Defines the new `fetchUser` contract"),
+                                   .init(path: f[f.count / 2].path, reason: "Main call site; shows the `null` handling"),
+                                   .init(path: f[f.count - 1].path, reason: "Scoring moved into `Result`")],
+                    risks: [.init(path: f[0].path, description: "`fetchUser` returns `null` for every non-OK status, so a 500 looks like a missing user."),
+                            .init(path: nil, description: "No tests cover the timeout path.")],
+                    headSHA: store.detail?.headOid), state: .idle)
+            case "demodiscuss":
+                // README screenshots: a finished Discuss conversation on the first added line.
+                if let detail = store.detail,
+                   let (fi, line) = store.files.enumerated().lazy.compactMap({ (i, f) -> (Int, Int)? in
+                       guard let l = f.lines.first(where: { $0.kind == .addition }) else { return nil }
+                       return (i, Int(l.newLine))
+                   }).first {
+                    let anchor = CodeAnchor(path: store.files[fi].path, side: .right, startLine: line, endLine: line + 2)
+                    let t = DiscussThread(ref: store.ref, anchor: anchor, commitSHA: detail.headOid, anchorTextHash: 0, messages: [
+                        .init(role: .user, text: "Why return `null` here instead of throwing? Callers seem to expect a `User`."),
+                        .init(role: .tool, text: "", toolName: "Grep", toolInput: "fetchUser\\(", toolResult: "3 matches in 3 files"),
+                        .init(role: .assistant, text: "All three call sites (`ProfileView`, `Sidebar`, `SearchResults`) already check for `null`, so the change is safe for a missing user.\n\nThe catch: `!res.ok` also covers 500s and timeouts, which now look like \"user not found\". I'd return `null` only for `404` and throw otherwise.\n\nWant me to make that change and commit it to the PR branch?"),
+                    ])
+                    store.updateDiscussThread(t)
+                    store.activeDiscussId = t.id
+                    store.rebuildLayout()
+                    app.showDiscussPanel = true
                 }
             case "fakesummary":
                 store.setSummary(AISummary(summary: String(repeating: "This PR reworks the processing pipeline and changes how scores are computed. ", count: Int(parts[safe: 1] ?? "4") ?? 4),
@@ -199,6 +234,11 @@ public enum UIScript {
             case "light": NSApp.appearance = NSAppearance(named: .aqua)
             case "next": store.navigate(.nextThread)
             case "snap": snapshot(name: parts[safe: 1] ?? "snap", dir: dir)
+            case "winid":
+                // Prints the window number so `screencapture -l` can grab it with real glass.
+                if let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) {
+                    print("winid \(w.windowNumber)"); fflush(stdout)
+                }
             case "snappanel":
                 // The inspector is Liquid Glass and can't be cached; render it offscreen.
                 let r = ImageRenderer(content: DiscussPanel(store: store).frame(width: 400, height: 760)
