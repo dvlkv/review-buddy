@@ -35,6 +35,8 @@ struct SidebarView: View {
                         Spacer()
                         if !section.items.isEmpty { Text("\(section.items.count)").foregroundStyle(.secondary) }
                     }
+                    // Section headers run 14pt wider than the row cells; line the count up with them.
+                    .padding(.trailing, 14)
                 }
             }
         }
@@ -51,6 +53,9 @@ struct SidebarView: View {
                     .buttonStyle(.borderless).help("Refresh inbox")
             }
             .padding(10)
+            // Opaque bar so the list doesn't show through as it scrolls underneath.
+            .background(.bar)
+            .overlay(alignment: .top) { Divider() }
         }
     }
 }

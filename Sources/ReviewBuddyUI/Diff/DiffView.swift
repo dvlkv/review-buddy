@@ -18,6 +18,9 @@ public struct DiffView: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.drawsBackground = true
         scroll.backgroundColor = Theme.canvas
+        // The sticky header is pushed up (negative y) by the next file's header; without
+        // clipping (off by default since macOS 14) it would draw over the PR header above.
+        scroll.clipsToBounds = true
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.postsFrameChangedNotifications = true
 

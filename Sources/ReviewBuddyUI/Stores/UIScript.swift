@@ -10,6 +10,23 @@ import ReviewBuddyCore
 public enum UIScript {
     public static func run(app: AppModel, script: String, dir: URL) async {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // `nopr;…` runs inbox/sidebar-only commands without waiting for a PR to render.
+        if script.hasPrefix("nopr;") {
+            while app.inbox == nil { try? await Task.sleep(for: .milliseconds(50)) }
+            for raw in script.split(separator: ";").dropFirst() {
+                let parts = raw.split(separator: ":").map(String.init)
+                switch parts.first {
+                case "wait": try? await Task.sleep(for: .milliseconds(Int((Double(parts[safe: 1] ?? "1") ?? 1) * 1000)))
+                case "inbox": dumpInbox(app: app, dir: dir)
+                case "sidebar": app.showSidebar.toggle()
+                case "tree": dumpTree(depth: Int(parts[safe: 1] ?? "7") ?? 7, dir: dir)
+                case "quit": NSApp.terminate(nil)
+                default: break
+                }
+                try? await Task.sleep(for: .milliseconds(350))
+            }
+            return
+        }
         while app.current?.layout == nil || (app.current?.view as? DiffTableCoordinator)?.tableView?.window == nil {
             try? await Task.sleep(for: .milliseconds(50))
         }
@@ -31,6 +48,36 @@ public enum UIScript {
                 store.scrollTo(anchor: CodeAnchor(path: store.files[arg(1)].path, side: .right, startLine: arg(2), endLine: arg(2)))
                 (store.view as? DiffTableCoordinator)?.redrawVisible()
                 (store.view as? DiffTableCoordinator)?.updateSelectionBar()
+            case "textsel":
+                // textsel:file:startLine:startCol:endLine:endCol (right side) — a character selection.
+                store.select(file: arg(1), side: .right, line: arg(2), extend: false, column: arg(3))
+                store.select(file: arg(1), side: .right, line: arg(4), extend: true, column: arg(5))
+                store.scrollTo(anchor: CodeAnchor(path: store.files[arg(1)].path, side: .right, startLine: arg(2), endLine: arg(2)))
+                (store.view as? DiffTableCoordinator)?.redrawVisible()
+                (store.view as? DiffTableCoordinator)?.updateSelectionBar()
+            case "addfile":
+                // Simulates a PR update that adds a file: reinstall the diff plus one new file.
+                // `addfile:swap` drops the first file too, keeping the file count the same.
+                let extra = "diff --git a/zz_new.go b/zz_new.go\nnew file mode 100644\n--- /dev/null\n+++ b/zz_new.go\n@@ -0,0 +1,2 @@\n+package main\n+// new\n"
+                var text = SyntheticDiff.make(.small)
+                if parts[safe: 1] == "swap", let r = text.range(of: "diff --git", range: text.index(after: text.startIndex)..<text.endIndex) {
+                    text = String(text[r.lowerBound...])
+                }
+                store.install(diff: UnifiedDiffParser.parse(text + "\n" + extra))
+                try? "files=\(store.files.count) last=\(store.files.last?.path ?? "-")".write(to: dir.appendingPathComponent("files.txt"), atomically: true, encoding: .utf8)
+            case "order":
+                let top = (store.view as? DiffTableCoordinator)?.topVisibleRow ?? -1
+                let line = "first=\(store.files.prefix(3).map { ($0.path as NSString).lastPathComponent }) reviewFirst=\(store.reviewFirstCount) topRow=\(top) currentFile=\(store.currentFile)\n"
+                let url = dir.appendingPathComponent("order.txt")
+                let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+                try? (old + line).write(to: url, atomically: true, encoding: .utf8)
+            case "admin": store.detail?.status?.viewerCanMergeAsAdmin = true
+            case "noconversation": store.detail?.conversation = nil
+            case "mergestate":
+                // Pretend GitHub reports another merge state, e.g. `mergestate:CLEAN`.
+                store.detail?.status?.mergeStateStatus = parts[safe: 1] ?? "CLEAN"
+            case "overview":
+                store.showOverview = parts[safe: 1] != "off"
             case "selectfirst":
                 // First added line of the first rendered file.
                 if let (fi, line) = store.files.enumerated().lazy.compactMap({ (i, f) -> (Int, Int)? in
@@ -44,18 +91,16 @@ public enum UIScript {
                 }
             case "fakesummary":
                 store.setSummary(AISummary(summary: String(repeating: "This PR reworks the processing pipeline and changes how scores are computed. ", count: Int(parts[safe: 1] ?? "4") ?? 4),
-                                           readingOrder: [.init(path: store.files[0].path, reason: "Core change"), .init(path: store.files[1].path, reason: "Call sites")],
-                                           risks: [.init(path: store.files[0].path, description: "Edge case for empty input")]), state: .idle)
-            case "tree":
-                func dump(_ v: NSView, _ d: Int) -> String {
-                    guard d < Int(parts[safe: 1] ?? "7") ?? 7 else { return "" }
-                    var out = String(repeating: "  ", count: d) + "\(type(of: v)) \(v.frame) hidden=\(v.isHidden) alpha=\(v.alphaValue)\n"
-                    for sub in v.subviews { out += dump(sub, d + 1) }
-                    return out
+                                           readingOrder: [.init(path: store.files[store.files.count - 1].path, reason: "Core change"),
+                                                          .init(path: store.files[store.files.count / 2].path, reason: "Call sites")],
+                                           risks: [.init(path: store.files[0].path, description: "Edge case for `empty` input")]), state: .idle)
+            case "tree": dumpTree(depth: Int(parts[safe: 1] ?? "7") ?? 7, dir: dir)
+            case "inbox": dumpInbox(app: app, dir: dir)
+            case "resize":
+                if let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }) {
+                    w.setFrame(NSRect(x: 40, y: 40, width: CGFloat(arg(1)), height: CGFloat(parts.count > 2 ? arg(2) : 1000)), display: true)
                 }
-                if let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }), let cv = w.contentView {
-                    try? dump(cv, 0).write(to: dir.appendingPathComponent("tree.txt"), atomically: true, encoding: .utf8)
-                }
+            case "sidebar": app.showSidebar = parts[safe: 1] != "off"
             case "settext":
                 if let c = store.composers.values.first { store.updateComposer(c.id, text: parts.dropFirst().joined(separator: ":")) }
             case "cancelall":
@@ -178,6 +223,27 @@ public enum UIScript {
             default: break
             }
             try? await Task.sleep(for: .milliseconds(350))
+        }
+    }
+
+    /// Inbox sections as text (the sidebar is Liquid Glass and can't be snapped).
+    static func dumpInbox(app: AppModel, dir: URL) {
+        let lines = (app.inbox?.sections ?? []).map {
+            "\($0.id) loading=\($0.isLoading) items=\($0.items.count) error=\($0.error ?? "-")"
+        }
+        try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("inbox.txt"), atomically: true, encoding: .utf8)
+    }
+
+    static func dumpTree(depth: Int, dir: URL) {
+        func dump(_ v: NSView, _ d: Int) -> String {
+            guard d < depth else { return "" }
+            var out = String(repeating: "  ", count: d) + "\(type(of: v)) \(v.frame) hidden=\(v.isHidden) alpha=\(v.alphaValue)\n"
+            for sub in v.subviews { out += dump(sub, d + 1) }
+            return out
+        }
+        if let w = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 400 }), let cv = w.contentView {
+            let items = (w.toolbar?.items ?? []).map { "toolbar: \($0.itemIdentifier.rawValue) \($0.label)" }.joined(separator: "\n")
+            try? (items + "\n" + dump(cv, 0)).write(to: dir.appendingPathComponent("tree.txt"), atomically: true, encoding: .utf8)
         }
     }
 

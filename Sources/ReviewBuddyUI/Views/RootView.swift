@@ -4,6 +4,8 @@ import ReviewBuddyCore
 public struct RootView: View {
     @Bindable var app: AppModel
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var detailHeight: CGFloat = 800
+    @AppStorage("discussPanelWidth") private var discussWidth: Double = 380
 
     public init(app: AppModel) { self.app = app }
 
@@ -15,18 +17,24 @@ public struct RootView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } content: {
             Group {
-                if let pr = app.current, pr.diff != nil { FileTreeView(store: pr) }
+                // Keyed by PR so switching PRs starts from a fresh tree (rows, folders).
+                if let pr = app.current, pr.diff != nil { FileTreeView(store: pr).id(ObjectIdentifier(pr)) }
                 else { Color.clear }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 250, max: 420)
         } detail: {
-            detail
-        }
-        .inspector(isPresented: $app.showDiscussPanel) {
-            Group {
-                if let pr = app.current { DiscussPanel(store: pr) } else { Color.ghCanvas }
+            // The Discuss panel is a plain column, not `.inspector`: on macOS 26 the
+            // inspector sits in a glass container with rounded corners.
+            HStack(spacing: 0) {
+                detail
+                if app.showDiscussPanel {
+                    ResizeHandle(width: $discussWidth, range: 300...640)
+                    Group {
+                        if let pr = app.current { DiscussPanel(store: pr) } else { Color.ghCanvas }
+                    }
+                    .frame(width: discussWidth)
+                }
             }
-            .inspectorColumnWidth(min: 300, ideal: 380, max: 640)
         }
         .toolbar { toolbar }
         .sheet(isPresented: $app.showOpenURL) { OpenURLSheet(app: app) }
@@ -35,8 +43,18 @@ public struct RootView: View {
             if let pr = app.current { PushSheet(store: pr, isPresented: $app.showPushSheet) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .rbShowPush)) { _ in app.showPushSheet = true }
+        .onReceive(NotificationCenter.default.publisher(for: .rbToggleDiscussPanel)) { _ in app.showDiscussPanel.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.inbox?.refreshIfStale()
+        }
+        // `app.showSidebar` (menu, ⌃⌘S) and the split view (system button, dragging) stay in sync.
+        .onChange(of: app.showSidebar) { _, show in
+            let v: NavigationSplitViewVisibility = show ? .all : .doubleColumn
+            if columnVisibility != v { withAnimation { columnVisibility = v } }
+        }
+        .onChange(of: columnVisibility) { _, v in
+            let show = v != .doubleColumn && v != .detailOnly
+            if app.showSidebar != show { app.showSidebar = show }
         }
         .onChange(of: app.current?.activeDiscussId) { _, new in if new != nil { app.showDiscussPanel = true } }
         .navigationTitle(app.current?.detail?.title ?? "Review Buddy")
@@ -62,11 +80,21 @@ public struct RootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             default:
-                VStack(spacing: 0) {
-                    PRHeaderView(store: pr)
-                    Divider()
-                    DiffView(store: pr)
+                // The diff stays mounted under the overview so switching back keeps the
+                // canvas, its scroll position and selection.
+                ZStack {
+                    VStack(spacing: 0) {
+                        PRHeaderView(store: pr, maxBodyHeight: max(160, detailHeight * 0.5))
+                        Divider()
+                        DiffView(store: pr)
+                    }
+                    .opacity(pr.showOverview ? 0 : 1)
+                    .allowsHitTesting(!pr.showOverview)
+                    if pr.showOverview { OverviewView(store: pr) }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailHeight = $0 }
+                // Breathing room between the floating sidebars and the diff.
+                .padding(.horizontal, 12)
                 .background(Color.ghCanvas)
             }
         } else {
@@ -89,16 +117,42 @@ public struct RootView: View {
                 ModePicker(store: pr)
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                SummarizeButton(store: pr)
-                PreReviewButton(store: pr)
                 LocalCommitsButton(app: app, store: pr)
                 ReviewButton(app: app, store: pr)
-                Button { app.showDiscussPanel.toggle() } label: { Label("Discuss", systemImage: "sidebar.right") }
-                    .help("Toggle Discuss panel (⌘\\)")
             }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button { app.showDiscussPanel.toggle() } label: { Label("Discuss", systemImage: "sidebar.right") }
+                .help("Toggle Discuss panel (⌘\\)")
         }
     }
 
+}
+
+/// Divider between the diff and the Discuss panel; drag to resize the panel.
+struct ResizeHandle: View {
+    @Binding var width: Double
+    let range: ClosedRange<Double>
+    @State private var startWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.ghBorder)
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { g in
+                            let start = startWidth ?? width
+                            startWidth = start
+                            width = min(range.upperBound, max(range.lowerBound, start - g.translation.width))
+                        }
+                        .onEnded { _ in startWidth = nil })
+            }
+    }
 }
 
 struct ModePicker: View {
@@ -110,39 +164,6 @@ struct ModePicker: View {
         }
         .pickerStyle(.segmented)
         .help("Toggle split / unified (S)")
-    }
-}
-
-struct SummarizeButton: View {
-    let store: PRStore
-    var body: some View {
-        Button { Task { await store.summarize() } } label: {
-            if store.summaryState.isRunning { ProgressView().controlSize(.small) }
-            else { Label("Summarize", systemImage: "text.alignleft") }
-        }
-        .help("AI summary and reading order")
-        .disabled(store.summaryState.isRunning)
-    }
-}
-
-struct PreReviewButton: View {
-    let store: PRStore
-    var body: some View {
-        Button { Task { await store.preReview() } } label: {
-            if store.preReviewState.isRunning { ProgressView().controlSize(.small) }
-            else {
-                Label(store.openFindings.isEmpty ? "AI pre-review" : "AI pre-review (\(store.openFindings.count))",
-                      systemImage: "sparkles")
-            }
-        }
-        .help(help)
-        .disabled(store.preReviewState.isRunning)
-    }
-
-    var help: String {
-        if case .failed(let e) = store.preReviewState { return "Pre-review failed: \(e)" }
-        if case .running(let m) = store.preReviewState { return m }
-        return "Ask Claude to review the whole PR and leave private suggested comments"
     }
 }
 
@@ -328,9 +349,10 @@ struct CommandPalette: View {
         switch a {
         case .openByURL: app.showOpenURL = true
         case .toggleDiscussPanel: app.showDiscussPanel.toggle()
+        case .toggleSidebar: app.showSidebar.toggle()
         case .submit: app.showSubmitReview = true
-        case .summarize: if let pr { Task { await pr.summarize() } }
-        case .preReview: if let pr { Task { await pr.preReview() } }
+        case .summarize: pr?.startSummarize()
+        case .preReview: pr?.startPreReview()
         case .refresh: Task { await app.reloadCurrent() }
         case .pushFixes: app.showPushSheet = true
         case .toggleSplit: pr?.toggleMode()

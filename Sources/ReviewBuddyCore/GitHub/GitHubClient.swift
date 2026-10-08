@@ -94,6 +94,12 @@ public protocol GitHubAPI: Sendable {
     func startReview(pullRequestId: String) async throws -> String
     func addThread(pullRequestId: String, reviewId: String, anchor: CodeAnchor, body: String) async throws -> ReviewThread
     func reply(threadId: String, reviewId: String?, body: String) async throws -> ReviewComment
+    /// A PR (issue) comment, outside any review.
+    func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment
+    /// Merges the PR; fails if the head moved past `expectedHeadOid` since it was loaded.
+    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws
+    /// Closes (`closed: true`) or reopens the PR without merging.
+    func setPullRequestClosed(id: String, closed: Bool) async throws
     func updateComment(id: String, body: String) async throws -> ReviewComment
     func deleteComment(id: String) async throws
     func submitReview(reviewId: String, event: ReviewEvent, body: String) async throws
@@ -202,7 +208,15 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
                                           viewed: ViewedState(rawValue: $0.viewerViewedState) ?? .unviewed) },
             threads: threads.map { $0.toThread() },
             pendingReviewId: pr.reviews.nodes.first(where: { $0.viewerDidAuthor })?.id,
-            changedFiles: pr.changedFiles, additions: pr.additions, deletions: pr.deletions)
+            changedFiles: pr.changedFiles, additions: pr.additions, deletions: pr.deletions,
+            conversation: pr.conversation, status: pr.status(repo: first.repository))
+    }
+
+    public func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment {
+        let r: AddCommentData = try await graphql(Queries.addComment, ["subject": subjectId, "body": body])
+        let c = r.addComment.commentEdge.node
+        return .init(id: c.id, author: c.author?.login ?? "ghost", authorAvatarURL: c.author?.avatarUrl,
+                     body: c.body, createdAt: c.createdAt, url: c.url)
     }
 
     public func diff(_ ref: PRRef) async throws -> Data {
@@ -264,6 +278,14 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
 
     public func submitReview(reviewId: String, event: ReviewEvent, body: String) async throws {
         let _: EmptyData = try await graphql(Queries.submitReview, ["review": reviewId, "event": event.rawValue, "body": body])
+    }
+
+    public func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
+        let _: EmptyData = try await graphql(Queries.mergePullRequest, ["id": id, "method": method.rawValue, "head": expectedHeadOid])
+    }
+
+    public func setPullRequestClosed(id: String, closed: Bool) async throws {
+        let _: EmptyData = try await graphql(closed ? Queries.closePullRequest : Queries.reopenPullRequest, ["id": id])
     }
 
     public func deleteReview(reviewId: String) async throws {

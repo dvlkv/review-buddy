@@ -49,6 +49,8 @@ public struct PRLocalState: Codable, Equatable, Sendable {
     public var summary: AISummary?
     public var preReview: PreReviewResult?
     public var lastSeenHead: String?
+    /// Files the user chose to review first, in order; nil follows the AI reading order.
+    public var reviewOrder: [String]?
     public init() {}
 }
 

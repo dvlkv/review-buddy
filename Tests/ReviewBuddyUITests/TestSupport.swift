@@ -174,10 +174,19 @@ final class FlakyGitHub: GitHubAPI, @unchecked Sendable {
     func reply(threadId: String, reviewId: String?, body: String) async throws -> ReviewComment {
         try await base.reply(threadId: threadId, reviewId: reviewId, body: body)
     }
+    func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment {
+        try await base.addComment(subjectId: subjectId, body: body)
+    }
     func updateComment(id: String, body: String) async throws -> ReviewComment { try await base.updateComment(id: id, body: body) }
     func deleteComment(id: String) async throws { try await base.deleteComment(id: id) }
     func submitReview(reviewId: String, event: ReviewEvent, body: String) async throws {
         try await base.submitReview(reviewId: reviewId, event: event, body: body)
+    }
+    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
+        try await base.mergePullRequest(id: id, method: method, expectedHeadOid: expectedHeadOid)
+    }
+    func setPullRequestClosed(id: String, closed: Bool) async throws {
+        try await base.setPullRequestClosed(id: id, closed: closed)
     }
     func deleteReview(reviewId: String) async throws { try await base.deleteReview(reviewId: reviewId) }
     func setResolved(threadId: String, resolved: Bool) async throws -> Bool {

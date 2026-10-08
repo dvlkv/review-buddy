@@ -10,9 +10,27 @@ public struct DiffSelection: Equatable, Sendable {
     /// Line where the drag started; `end` follows the mouse.
     public var start: Int
     public var end: Int
+    /// Character offsets (UTF-16) on the `start` / `end` lines for a text selection made
+    /// by dragging in the code; nil when whole lines are selected (gutter, keyboard).
+    public var startColumn: Int?
+    public var endColumn: Int?
+    /// Comments and discussions still anchor on whole lines: GitHub has no character ranges.
     public var anchor: CodeAnchor { CodeAnchor(path: path, side: side, startLine: start, endLine: end) }
     public func contains(side s: DiffSide, line: Int) -> Bool {
         s == side && line >= min(start, end) && line <= max(start, end)
+    }
+
+    public var isPartial: Bool { startColumn != nil && endColumn != nil }
+
+    /// Selected characters on `line`, or nil for a whole-line selection. The upper bound
+    /// is `Int.max` when the selection continues past the end of the line.
+    public func columnRange(line: Int) -> Range<Int>? {
+        guard let sc = startColumn, let ec = endColumn else { return nil }
+        let (lo, loCol, hi, hiCol) = (start, sc) <= (end, ec) ? (start, sc, end, ec) : (end, ec, start, sc)
+        guard line >= lo, line <= hi else { return nil }
+        let a = line == lo ? loCol : 0
+        let b = line == hi ? hiCol : Int.max
+        return a..<max(a, b)
     }
 }
 
@@ -68,7 +86,7 @@ public final class PRStore {
     @ObservationIgnored let services: Services
 
     // Loaded data
-    public private(set) var detail: PRDetail?
+    public internal(set) var detail: PRDetail?
     public private(set) var diff: DiffSet?
     /// Driven imperatively into the table; not observed by SwiftUI (rebuilt often).
     @ObservationIgnored public private(set) var layout: DiffLayout?
@@ -87,6 +105,11 @@ public final class PRStore {
     @ObservationIgnored public private(set) var currentFile = 0
     @ObservationIgnored public var onCurrentFileChange: [String: (Int) -> Void] = [:]
     public var fileFilter = ""
+    /// The Conversation & commits screen is showing instead of the diff. Every jump to
+    /// code (`scrollToFile`, `scrollTo(anchor:)`, `scrollToBlock`) switches back.
+    public var showOverview = false
+    /// The user's "Review first" list; nil follows the AI summary's reading order.
+    public private(set) var customReviewOrder: [String]?
     public var banner: String?
 
     // Review
@@ -126,6 +149,9 @@ public final class PRStore {
     public private(set) var summary: AISummary?
     public private(set) var summaryState: TaskState = .idle
     public private(set) var preReviewState: TaskState = .idle
+    /// Running AI jobs, kept so the user can cancel them (cancelling interrupts `claude`).
+    @ObservationIgnored var summaryTask: Task<Void, Never>?
+    @ObservationIgnored var preReviewTask: Task<Void, Never>?
     public private(set) var fixRequests: [FixRequest] = []
 
     // Git
@@ -157,6 +183,7 @@ public final class PRStore {
         let start = ContinuousClock.now
         let local = await services.store.load(ref)
         apply(local: local)
+        customReviewOrder = local.reviewOrder
         do {
             async let detailTask = services.github.pullRequest(ref)
             async let diffTask: Data? = { [services, ref] in
@@ -181,6 +208,7 @@ public final class PRStore {
                 Perf.shared.measure("diff.parse") { UnifiedDiffParser.parse(data: bytes) }
             }.value
             install(diff: parsed)
+            applyFileOrder()
             Perf.shared.record("pr.load.total", ms: (ContinuousClock.now - start).milliseconds)
             loadState = .loaded
             remapDiscussThreads()
@@ -409,14 +437,38 @@ public final class PRStore {
 
     // MARK: - Selection
 
-    public func select(file: Int, side: DiffSide, line: Int, extend: Bool) {
+    /// `column` makes it a character selection (drag in the code); nil selects whole lines.
+    public func select(file: Int, side: DiffSide, line: Int, extend: Bool, column: Int? = nil) {
         guard file < files.count, line > 0 else { return }
         if extend, var s = selection, s.file == file, s.side == side {
             s.end = line
+            if s.startColumn != nil { s.endColumn = column ?? Int.max }
             selection = s
         } else {
-            selection = DiffSelection(file: file, path: files[file].path, side: side, start: line, end: line)
+            selection = DiffSelection(file: file, path: files[file].path, side: side, start: line, end: line,
+                                      startColumn: column, endColumn: column)
         }
+    }
+
+    /// A click in the code that didn't drag: nothing is selected. Lines are selected from
+    /// the gutter (line numbers, +) only.
+    public var isEmptyTextSelection: Bool {
+        guard let s = selection else { return false }
+        return s.isPartial && s.start == s.end && s.startColumn == s.endColumn
+    }
+
+    /// The selected text: whole lines, or just the dragged-over characters.
+    public func selectedText() -> String? {
+        guard let sel = selection else { return nil }
+        let a = sel.anchor
+        let texts = lines(for: a)
+        guard sel.isPartial, texts.count == a.endLine - a.startLine + 1 else { return texts.joined(separator: "\n") }
+        return zip(a.startLine...a.endLine, texts).map { n, t -> String in
+            guard let r = sel.columnRange(line: n) else { return t }
+            let u = Array(t.utf16)
+            let lo = min(r.lowerBound, u.count), hi = min(r.upperBound, u.count)
+            return String(decoding: u[lo..<hi], as: UTF16.self)
+        }.joined(separator: "\n")
     }
 
     public func clearSelection() { selection = nil }
@@ -668,18 +720,128 @@ public final class PRStore {
         }
     }
 
+    // MARK: - Review order
+
+    /// Files shown first, in order: the user's list, else the AI reading order. Only paths in the diff.
+    public var reviewOrder: [String] {
+        let wanted = customReviewOrder ?? summary?.readingOrder.map(\.path) ?? []
+        var seen = Set<String>()
+        return wanted.filter { diff?.fileIndex(path: $0) != nil && seen.insert($0).inserted }
+    }
+
+    /// The diff lists `reviewOrder` first, then everything else in file-tree order, so the
+    /// tree and the diff always scroll in the same order.
+    public var reviewFirstCount: Int { reviewOrder.count }
+
+    public func addToReviewOrder(_ path: String) { setReviewOrder(reviewOrder.filter { $0 != path } + [path]) }
+    public func removeFromReviewOrder(_ path: String) { setReviewOrder(reviewOrder.filter { $0 != path }) }
+
+    public func moveInReviewOrder(_ path: String, by delta: Int) {
+        var o = reviewOrder
+        guard let i = o.firstIndex(of: path) else { return }
+        let j = min(max(0, i + delta), o.count - 1)
+        guard i != j else { return }
+        o.remove(at: i); o.insert(path, at: j)
+        setReviewOrder(o)
+    }
+
+    /// Back to the AI summary's reading order.
+    public func resetReviewOrder() {
+        customReviewOrder = nil
+        persist()
+        applyFileOrder()
+    }
+
+    private func setReviewOrder(_ paths: [String]) {
+        customReviewOrder = paths
+        persist()
+        applyFileOrder()
+    }
+
+    /// Reorders the diff's files to `reviewOrder` + tree order. Index-keyed view state
+    /// (collapsed, expanded context, split pairs) moves with its file.
+    func applyFileOrder() {
+        guard let old = diff else { return }
+        let paths = old.files.map(\.path)
+        let priority = reviewOrder.compactMap { old.fileIndex(path: $0) }
+        let order = FileTreeBuilder.displayOrder(paths: paths, priority: priority)
+        guard order != Array(paths.indices) else { return }
+        var newIndex = [Int](repeating: 0, count: order.count)
+        for (n, o) in order.enumerated() { newIndex[o] = n }
+        // Stay on the file being read; from the very top, show the new first files.
+        let topPath = currentFile > 0 ? files[safe: currentFile]?.path : nil
+
+        options.collapsed = Set(options.collapsed.map { newIndex[$0] })
+        options.forceLoaded = Set(options.forceLoaded.map { newIndex[$0] })
+        options.expandedBelow = Dictionary(uniqueKeysWithValues: options.expandedBelow.map { (newIndex[$0.key], $0.value) })
+        options.expandedAbove = Dictionary(uniqueKeysWithValues: options.expandedAbove.map {
+            (DiffLayoutOptions.key(file: newIndex[Int($0.key >> 32)], hunk: Int($0.key & 0xFFFF_FFFF)), $0.value)
+        })
+        splitPairs = splitPairs.flatMap { p in p.count == order.count ? order.map { p[$0] } : nil }
+        selection = nil
+        let new = DiffSet(buffer: old.buffer, files: order.map { old.files[$0] })
+        diff = new
+        highlights.cache = HighlightCache(diff: new)
+        layout = nil // its split pairs are in the old order
+        rebuildLayout(preserveScroll: false)
+        let row = topPath.flatMap { new.fileIndex(path: $0) }.flatMap { layout?.fileStartRow[safe: $0] } ?? 0
+        view?.scrollToRow(row, select: false)
+    }
+
+    /// Posts a PR comment (GitHub's Conversation tab). Returns an error message on failure.
+    public func addConversationComment(_ body: String) async -> String? {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let d = detail else { return nil }
+        do {
+            let c = try await services.github.addComment(subjectId: d.nodeId, body: text)
+            var conv = detail?.conversation ?? PRConversation()
+            conv.comments.append(c)
+            detail?.conversation = conv
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Merges the PR on GitHub, then reloads it. Returns an error message on failure.
+    public func mergePullRequest(method: MergeMethod) async -> String? {
+        guard let d = detail else { return nil }
+        do {
+            try await services.github.mergePullRequest(id: d.nodeId, method: method, expectedHeadOid: d.headOid)
+        } catch {
+            return error.localizedDescription
+        }
+        await refresh()
+        return nil
+    }
+
+    /// Closes or reopens the PR on GitHub, then reloads it. Returns an error message on failure.
+    public func setClosed(_ closed: Bool) async -> String? {
+        guard let d = detail else { return nil }
+        do {
+            try await services.github.setPullRequestClosed(id: d.nodeId, closed: closed)
+        } catch {
+            return error.localizedDescription
+        }
+        await refresh()
+        return nil
+    }
+
     public func scrollToFile(_ file: Int) {
+        showOverview = false
         guard let layout, file < layout.fileStartRow.count else { return }
         view?.scrollToRow(layout.fileStartRow[file], select: false)
     }
 
     public func scrollToBlock(id: String) {
+        showOverview = false
         guard let layout, let bi = layout.blocks.firstIndex(where: { $0.id == id }),
               let r = layout.rows.firstIndex(where: { $0.kind == .block && $0.a == Int32(bi) }) else { return }
         view?.scrollToRow(max(0, r - 4), select: false)
     }
 
     public func scrollTo(anchor: CodeAnchor) {
+        showOverview = false
         guard let layout, let diff, let f = diff.fileIndex(path: anchor.path) else { return }
         if options.collapsed.contains(f) { options.collapsed.remove(f); rebuildLayout() }
         if let r = self.layout?.row(file: f, side: anchor.side, line: anchor.startLine) ?? layout.fileStartRow[safe: f] {
@@ -777,6 +939,7 @@ public final class PRStore {
         state.summary = summary
         state.preReview = PreReviewResult(findings: Array(findings.values), headSHA: findingsHeadSHA ?? detail?.headOid, createdAt: Date())
         state.lastSeenHead = detail?.headOid
+        state.reviewOrder = customReviewOrder
         let store = services.store
         let ref = self.ref
         Task { await store.save(ref, state) }
@@ -791,7 +954,12 @@ public final class PRStore {
 
     func setControllers(_ id: String, _ c: DiscussController?) { controllers[id] = c }
 
-    func setSummary(_ s: AISummary?, state: TaskState) { summary = s; summaryState = state }
+    func setSummary(_ s: AISummary?, state: TaskState) {
+        let orderChanged = s?.readingOrder != summary?.readingOrder
+        summary = s; summaryState = state
+        // A new reading order moves its files to the top (unless the user set their own).
+        if orderChanged, customReviewOrder == nil { applyFileOrder() }
+    }
     func setPreReviewState(_ s: TaskState) { preReviewState = s }
     func setFindings(_ f: [AIFinding]) {
         findings = Dictionary(uniqueKeysWithValues: f.map { ($0.id, $0) })

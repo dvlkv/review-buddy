@@ -176,7 +176,10 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
     var hover: (row: Int, side: DiffSide)?
     private var hoverPlus: HoverPlusView?
     private var numWidth: CGFloat = 40
-    private var dragAnchor: (file: Int, side: DiffSide)?
+    /// `text`: the drag started in the code, so it selects characters, not whole lines.
+    private var dragAnchor: (file: Int, side: DiffSide, text: Bool)?
+    /// Where the mouse was released; the Comment/Discuss bar appears next to it.
+    private var selectionBarPoint: CGPoint?
     private var selectionBar: NSHostingView<AnyView>?
     private var installedDiff: ObjectIdentifier?
     private var metricsVersion = -1
@@ -986,8 +989,20 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
         }
         let extend = event.modifierFlags.contains(.shift)
         let before = store.selection
-        store.select(file: h.file, side: h.side, line: h.line, extend: extend)
-        dragAnchor = (h.file, h.side)
+        // Gutter clicks select lines; clicks in the code start a text selection.
+        // Triple click selects the line, like a text editor.
+        let column = h.inGutter || event.clickCount >= 3 ? nil : column(at: p, row: h.row, side: h.side)
+        if event.clickCount == 2, let column, !extend,
+           let text = store.lines(for: CodeAnchor(path: store.files[h.file].path, side: h.side, startLine: h.line, endLine: h.line)).first {
+            // Double click selects the token under the pointer.
+            let word = Self.wordRange(in: text, at: column)
+            store.select(file: h.file, side: h.side, line: h.line, extend: false, column: word.lowerBound)
+            store.select(file: h.file, side: h.side, line: h.line, extend: true, column: word.upperBound)
+        } else {
+            store.select(file: h.file, side: h.side, line: h.line, extend: extend, column: column)
+        }
+        dragAnchor = (h.file, h.side, column != nil)
+        selectionBarPoint = nil
         selectionBar?.isHidden = true
         invalidateSelection(before)
         invalidateSelection(store.selection)
@@ -1002,18 +1017,52 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
             guard let sl = a.side == .left ? (lines.left ?? lines.unified) : (lines.right ?? lines.unified), sl.number > 0 else { return }
             line = sl.number
         }
+        let column = a.text ? column(at: p, row: h.row, side: a.side) : nil
         let before = store.selection
-        store.select(file: a.file, side: a.side, line: line, extend: true)
+        store.select(file: a.file, side: a.side, line: line, extend: true, column: column)
         invalidateSelection(before)
         invalidateSelection(store.selection)
     }
 
     func handleMouseUp(at p: CGPoint) {
+        let plainClick = dragAnchor?.text == true && store?.isEmptyTextSelection == true
         dragAnchor = nil
+        if plainClick { clearSelection(); return }
+        selectionBarPoint = p
         updateSelectionBar()
     }
 
+    /// UTF-16 range of the identifier at `column` (letters, digits, `_`, `$`); a single
+    /// character when the click lands on anything else.
+    static func wordRange(in text: String, at column: Int) -> Range<Int> {
+        let u = Array(text.utf16)
+        guard !u.isEmpty else { return 0..<0 }
+        func isWord(_ c: UInt16) -> Bool {
+            guard let s = Unicode.Scalar(c) else { return true } // surrogate halves: part of a word
+            return CharacterSet.alphanumerics.contains(s) || s == "_" || s == "$"
+        }
+        // A click past the end of the line belongs to the last character.
+        let i = min(max(0, column), u.count - 1)
+        guard isWord(u[i]) else { return i..<(i + 1) }
+        var a = i, b = i + 1
+        while a > 0, isWord(u[a - 1]) { a -= 1 }
+        while b < u.count, isWord(u[b]) { b += 1 }
+        return a..<b
+    }
+
+    /// Character index under `p` in the code of `row` on `side` (UTF-16 offset).
+    func column(at p: CGPoint, row: Int, side: DiffSide) -> Int? {
+        guard let layout, row >= 0, row < layout.rowCount, let line = renderedLine(row: layout.rows[row], side: side) else { return nil }
+        let x = p.x - (geometry(width: width).codeX(side: side) + 8 - hOffset)
+        let length = CTLineGetStringRange(line.line).length
+        if x <= 0 { return 0 }
+        if x >= line.width { return length }
+        let i = CTLineGetStringIndexForPosition(line.line, CGPoint(x: x, y: 0))
+        return i == kCFNotFound ? length : min(max(0, i), length)
+    }
+
     func clearSelection() {
+        selectionBarPoint = nil
         let before = store?.selection
         store?.clearSelection()
         invalidateSelection(before)
@@ -1049,12 +1098,22 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
             canvas.addSubview(bar, positioned: .above, relativeTo: nil)
             selectionBar = bar
         }
-        bar.rootView = AnyView(SelectionBar(store: store, count: abs(sel.end - sel.start) + 1))
+        let content = SelectionBar(store: store, count: abs(sel.end - sel.start) + 1)
+        bar.rootView = AnyView(content)
         bar.isHidden = false
-        let size = bar.fittingSize
+        // With `sizingOptions = []` the hosting view's fittingSize is zero, which left the
+        // bar a 0×0 frame with its content spilling up and left over the selected line.
+        let size = NSHostingController(rootView: content).sizeThatFits(in: CGSize(width: 2000, height: 200))
         let rr = rect(ofRow: row)
-        let x = geometry(width: width).codeX(side: sel.side) + 8
-        bar.frame = CGRect(x: x, y: rr.maxY + 2, width: size.width, height: size.height)
+        var x = geometry(width: width).codeX(side: sel.side) + 8
+        var y = rr.maxY + 2
+        // After a mouse selection, show the bar just below the pointer instead.
+        if let p = selectionBarPoint {
+            x = min(max(4, p.x - 12), width - size.width - 8)
+            let r = self.row(at: p)
+            y = (r >= 0 && r < layout.rowCount ? rect(ofRow: r).maxY : p.y + 8) + 2
+        }
+        bar.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 
     // MARK: Keyboard
@@ -1082,9 +1141,9 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
     }
 
     func copySelection() {
-        guard let store, let sel = store.selection else { return }
+        guard let store, let text = store.selectedText() else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(store.lines(for: sel.anchor).joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func scrollHorizontally(by dx: CGFloat) {

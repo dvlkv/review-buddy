@@ -50,6 +50,17 @@ final class AvatarCache {
 }
 
 /// GitHub-flavored Markdown rendering for comment bodies.
+extension Text {
+    /// Inline Markdown (`code`, **bold**, *italic*, links); plain text if it doesn't parse.
+    init(inlineMarkdown s: String) {
+        if let a = try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            self.init(a)
+        } else {
+            self.init(verbatim: s)
+        }
+    }
+}
+
 struct MarkdownView: View {
     let text: String
     var suggestionContext: [String] = []

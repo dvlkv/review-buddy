@@ -8,6 +8,12 @@ extension PRStore {
     @discardableResult
     public func startDiscuss(_ anchor: CodeAnchor? = nil, seed: String? = nil) -> String? {
         guard let anchor = anchor ?? selection?.anchor, let detail else { return nil }
+        var seed = seed
+        // A character selection points at something specific: start the question with it.
+        if seed == nil, let sel = selection, sel.isPartial, let text = selectedText(),
+           !text.trimmingCharacters(in: .whitespaces).isEmpty, !text.contains("\n") {
+            seed = "`\(text.trimmingCharacters(in: .whitespaces))` "
+        }
         let lines = lines(for: anchor)
         let t = DiscussThread(ref: ref, anchor: anchor, commitSHA: anchor.side == .right ? detail.headOid : detail.baseOid,
                               anchorTextHash: DiscussThread.hashLines(lines))
@@ -109,12 +115,36 @@ extension PRStore {
 
     func autoRunAI() {
         if services.settings.autoSummarize, summary == nil || summary?.headSHA != detail?.headOid {
-            Task { await summarize() }
+            startSummarize()
         }
         let max = services.settings.autoPreReviewMaxLines
         if max > 0, let d = detail, d.additions + d.deletions <= max, findings.isEmpty {
-            Task { await preReview() }
+            startPreReview()
         }
+    }
+
+    /// Starts a summary in the background unless one is already running.
+    public func startSummarize() {
+        guard !summaryState.isRunning else { return }
+        summaryTask = Task { await summarize() }
+    }
+
+    public func cancelSummarize() {
+        summaryTask?.cancel()
+        summaryTask = nil
+        setSummary(summary, state: .idle)
+    }
+
+    /// Starts a pre-review in the background unless one is already running.
+    public func startPreReview() {
+        guard !preReviewState.isRunning else { return }
+        preReviewTask = Task { await preReview() }
+    }
+
+    public func cancelPreReview() {
+        preReviewTask?.cancel()
+        preReviewTask = nil
+        setPreReviewState(.idle)
     }
 
     public func summarize() async {
@@ -129,6 +159,7 @@ extension PRStore {
                                    model: services.settings.claudeModel.isEmpty ? nil : services.settings.claudeModel,
                                    permissionMode: "plan", jsonSchema: Prompts.summarySchema)
             let res = try await services.oneShot.run(config: cfg, prompt: Prompts.summary(pr: detail))
+            try Task.checkCancellation()
             guard let data = res.structuredOutput ?? res.text?.data(using: .utf8) else { throw ClaudeError.badOutput }
             var s = try JSONDecoder().decode(AISummary.self, from: data)
             s.headSHA = detail.headOid
@@ -136,7 +167,8 @@ extension PRStore {
             setSummary(s, state: .idle)
             persist()
         } catch {
-            setSummary(summary, state: .failed(error.localizedDescription))
+            // Cancelled by the user: `cancelSummarize` already reset the state.
+            if !Task.isCancelled { setSummary(summary, state: .failed(error.localizedDescription)) }
         }
     }
 
@@ -152,6 +184,7 @@ extension PRStore {
                                    model: services.settings.claudeModel.isEmpty ? nil : services.settings.claudeModel,
                                    permissionMode: "plan", jsonSchema: Prompts.preReviewSchema)
             let res = try await services.oneShot.run(config: cfg, prompt: Prompts.preReview(pr: detail))
+            try Task.checkCancellation()
             guard let data = res.structuredOutput ?? res.text?.data(using: .utf8) else { throw ClaudeError.badOutput }
             let result = try JSONDecoder().decode(PreReviewResult.self, from: data)
             // Keep only findings that land on files in this diff.
@@ -162,7 +195,7 @@ extension PRStore {
             persist()
             rebuildLayout()
         } catch {
-            setPreReviewState(.failed(error.localizedDescription))
+            if !Task.isCancelled { setPreReviewState(.failed(error.localizedDescription)) }
         }
     }
 

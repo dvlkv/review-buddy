@@ -27,14 +27,16 @@ struct ReviewBuddyApp: App {
                 Button("Refresh") { Task { await app.reloadCurrent() } }
                     .keyboardShortcut("r", modifiers: .command)
                 Divider()
+                Button("Toggle Inbox Sidebar") { app.showSidebar.toggle() }
+                    .keyboardShortcut("s", modifiers: [.control, .command])
                 Button("Toggle Discuss Panel") { app.showDiscussPanel.toggle() }
                     .keyboardShortcut("\\", modifiers: .command)
                 Button("Toggle Split / Unified") { app.current?.toggleMode() }
                 Button("Finish Review…") { app.showSubmitReview = true }
                     .keyboardShortcut(.return, modifiers: [.command, .shift])
                 Divider()
-                Button("Summarize Pull Request") { if let pr = app.current { Task { await pr.summarize() } } }
-                Button("Run AI Pre-review") { if let pr = app.current { Task { await pr.preReview() } } }
+                Button("Summarize Pull Request") { app.current?.startSummarize() }
+                Button("Run AI Pre-review") { app.current?.startPreReview() }
                 Button("Push Fix Commits…") { app.showPushSheet = true }
                     .disabled(app.current?.localCommits.isEmpty ?? true)
                 Divider()

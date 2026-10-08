@@ -8,6 +8,10 @@ public struct FileTreeRow: Identifiable, Equatable, Sendable {
     public var name: String
     public var isFolder: Bool
     public var fileIndex: Int?
+    /// A "Review first" / "All files" label row.
+    public var isSection = false
+    /// Position in the "Review first" list (1-based).
+    public var rank: Int?
 }
 
 public enum FileTreeBuilder {
@@ -26,11 +30,29 @@ public enum FileTreeBuilder {
         }
     }
 
+    /// File indices in display order: `priority` first, then the rest in tree order.
+    public static func displayOrder(paths: [String], priority: [Int] = []) -> [Int] {
+        priority + rows(paths: paths, excluding: Set(priority)).compactMap(\.fileIndex)
+    }
+
     /// Builds visible rows. `collapsed` holds folder ids; `filter` is a case-insensitive substring.
-    public static func rows(paths: [String], filter: String = "", collapsed: Set<String> = []) -> [FileTreeRow] {
-        let root = Node("")
+    /// `priority` files are listed flat under "Review first", above the tree of the rest.
+    public static func rows(paths: [String], filter: String = "", collapsed: Set<String> = [],
+                            priority: [Int] = []) -> [FileTreeRow] {
         let q = filter.lowercased()
-        for (i, p) in paths.enumerated() {
+        guard !priority.isEmpty else { return rows(paths: paths, filter: q, collapsed: collapsed, excluding: []) }
+        var out = [FileTreeRow(id: "§first", depth: 0, name: "Review first", isFolder: false, isSection: true)]
+        for (n, i) in priority.enumerated() where q.isEmpty || paths[i].lowercased().contains(q) {
+            out.append(FileTreeRow(id: "§first/" + paths[i], depth: 0, name: (paths[i] as NSString).lastPathComponent,
+                                   isFolder: false, fileIndex: i, rank: n + 1))
+        }
+        out.append(FileTreeRow(id: "§all", depth: 0, name: "All files", isFolder: false, isSection: true))
+        return out + rows(paths: paths, filter: q, collapsed: collapsed, excluding: Set(priority))
+    }
+
+    static func rows(paths: [String], filter q: String = "", collapsed: Set<String> = [], excluding: Set<Int>) -> [FileTreeRow] {
+        let root = Node("")
+        for (i, p) in paths.enumerated() where !excluding.contains(i) {
             if !q.isEmpty && !p.lowercased().contains(q) { continue }
             var n = root
             let parts = p.split(separator: "/").map(String.init)
@@ -64,6 +86,44 @@ public enum FileTreeBuilder {
     }
 }
 
+/// Opens the PR summary screen (conversation, commits, merge status, AI pre-review) in
+/// place of the diff.
+struct OverviewRow: View {
+    let store: PRStore
+
+    var body: some View {
+        let conv = store.detail?.conversation
+        let comments = (conv?.comments.count ?? 0) + store.threads.count
+        let active = store.showOverview
+        Button { store.showOverview.toggle() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.bubble.right").frame(width: 16)
+                Text("Summary").fontWeight(.medium).lineLimit(1).fixedSize()
+                Spacer(minLength: 4)
+                if !store.openFindings.isEmpty {
+                    Label("\(store.openFindings.count)", systemImage: "sparkles").foregroundStyle(Color.ghAI)
+                        .help("Open AI pre-review findings")
+                }
+                if comments > 0 { Label("\(comments)", systemImage: "bubble.left").help("Comments and threads") }
+                if let n = conv?.commits.count, n > 0 { Label("\(n)", systemImage: "point.3.connected.trianglepath.dotted").help("Commits") }
+            }
+            .labelStyle(.titleAndIcon)
+            .font(.system(size: 12))
+            .foregroundStyle(active ? Color.ghText : Color.ghMuted)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            // Opaque like the filter field: this sits under the toolbar's glass edge.
+            .background {
+                RoundedRectangle(cornerRadius: 6).fill(Color.ghCanvas)
+                    .overlay(RoundedRectangle(cornerRadius: 6).fill(active ? Color.ghAccent.opacity(0.18) : Color.clear))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(active ? Color.ghAccent : Color.ghBorder))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Conversation, commits, merge status and AI pre-review")
+    }
+}
+
 struct FileTreeView: View {
     let store: PRStore
     @State private var collapsed: Set<String> = []
@@ -72,6 +132,8 @@ struct FileTreeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            OverviewRow(store: store)
+                .padding(.horizontal, 8).padding(.top, 8)
             HStack(spacing: 6) {
                 Image(systemName: "line.3.horizontal.decrease").foregroundStyle(Color.ghMuted)
                 TextField("Filter files…", text: Bindable(store).fileFilter)
@@ -102,11 +164,14 @@ struct FileTreeView: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.fileFilter) { rebuild() }
         .onChange(of: collapsed) { rebuild() }
-        .onChange(of: store.files.count) { rebuild() }
+        // Any new diff (refresh, PR update), not just a different file count: an update
+        // can add one file and drop another.
+        .onChange(of: store.diff.map(ObjectIdentifier.init)) { rebuild() }
     }
 
     func rebuild() {
-        rows = FileTreeBuilder.rows(paths: store.files.map(\.path), filter: store.fileFilter, collapsed: collapsed)
+        rows = FileTreeBuilder.rows(paths: store.files.map(\.path), filter: store.fileFilter, collapsed: collapsed,
+                                    priority: Array(0..<store.reviewFirstCount))
     }
 }
 
@@ -202,8 +267,10 @@ final class FileTreeTableCoordinator: NSObject, NSTableViewDataSource, NSTableVi
         guard let table, let i = rowForFile[file], table.selectedRow != i else { return }
         suppressSelection = true
         table.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
-        // Only scroll the tree when the row is off-screen (cheap check first).
-        if !table.visibleRect.intersects(table.rect(ofRow: i)) { table.scrollRowToVisible(i) }
+        // Only scroll the tree when the row is off-screen (cheap check first). Near the top,
+        // show the very top so the "Review first" label above the first file stays visible.
+        if i <= 1 { table.scroll(.zero) }
+        else if !table.visibleRect.intersects(table.rect(ofRow: i)) { table.scrollRowToVisible(i) }
         suppressSelection = false
     }
 
@@ -218,6 +285,10 @@ final class FileTreeTableCoordinator: NSObject, NSTableViewDataSource, NSTableVi
         let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? FileTreeCell) ?? FileTreeCell(identifier: id)
         cell.configure(models[row])
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        row < models.count && !models[row].row.isSection
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -242,6 +313,18 @@ final class FileTreeTableCoordinator: NSObject, NSTableViewDataSource, NSTableVi
         menu.removeAllItems()
         guard let table, let store, table.clickedRow >= 0, table.clickedRow < models.count,
               let f = models[table.clickedRow].row.fileIndex else { return }
+        let path = store.files[f].path
+        if let rank = store.reviewOrder.firstIndex(of: path) {
+            if rank > 0 { menu.addItem(ClosureMenuItem("Move up") { store.moveInReviewOrder(path, by: -1) }) }
+            if rank < store.reviewOrder.count - 1 { menu.addItem(ClosureMenuItem("Move down") { store.moveInReviewOrder(path, by: 1) }) }
+            menu.addItem(ClosureMenuItem("Remove from Review first") { store.removeFromReviewOrder(path) })
+        } else {
+            menu.addItem(ClosureMenuItem("Review first") { store.addToReviewOrder(path) })
+        }
+        if store.customReviewOrder != nil, store.summary?.readingOrder.isEmpty == false {
+            menu.addItem(ClosureMenuItem("Reset to AI reading order") { store.resetReviewOrder() })
+        }
+        menu.addItem(.separator())
         let viewed = store.isViewed(f)
         menu.addItem(ClosureMenuItem(viewed ? "Mark as not viewed" : "Mark as viewed") { store.toggleViewed(f) })
         menu.addItem(ClosureMenuItem("Copy path") {
@@ -303,6 +386,19 @@ final class FileTreeCell: NSTableCellView {
         let selected = false
         var x = 4 + CGFloat(m.row.depth) * 12
         let midY = bounds.midY
+        if m.row.isSection {
+            let t = NSAttributedString(string: m.row.name.uppercased(), attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold), .foregroundColor: Theme.mutedText, .kern: 0.4])
+            t.draw(at: CGPoint(x: x + 4, y: midY - t.size().height / 2 + 2))
+            return
+        }
+        if let rank = m.row.rank {
+            let t = NSAttributedString(string: "\(rank)", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold), .foregroundColor: Theme.aiAccent])
+            // Clear of the selection marker drawn at x 6–9.
+            t.draw(at: CGPoint(x: x + 12 - t.size().width / 2, y: midY - t.size().height / 2))
+            x += 18
+        }
         let iconName: String
         let iconColor: NSColor
         let textColor: NSColor

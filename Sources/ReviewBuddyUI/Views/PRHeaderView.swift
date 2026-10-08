@@ -3,30 +3,33 @@ import ReviewBuddyCore
 
 struct PRHeaderView: View {
     let store: PRStore
+    /// Tallest the description + summary area may get before it scrolls, so the diff
+    /// keeps most of the window.
+    var maxBodyHeight: CGFloat = 400
     @State private var showDescription = false
+    @State private var summaryCollapsed = false
 
     var body: some View {
         if let d = store.detail {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(d.title).font(.system(size: 18, weight: .semibold)).textSelection(.enabled).lineLimit(2)
-                    Text("#\(d.ref.number)").font(.system(size: 18)).foregroundStyle(Color.ghMuted)
-                    Spacer()
-                }
                 HStack(spacing: 6) {
                     stateBadge(d)
                     Avatar(url: d.authorAvatarURL, size: 18)
                     Text(d.author).fontWeight(.semibold).lineLimit(1).fixedSize()
-                    Text("wants to merge into").foregroundStyle(Color.ghMuted).lineLimit(1).fixedSize()
+                    Text("wants to merge into").foregroundStyle(Color.ghMuted).lineLimit(1)
+                        .layoutPriority(-1)
                     BranchLabel(name: d.baseRefName)
                     Image(systemName: "arrow.left").font(.system(size: 10)).foregroundStyle(Color.ghMuted)
                     BranchLabel(name: d.headRefName)
                     DiffStat(additions: d.additions, deletions: d.deletions).fixedSize()
                     Text(d.changedFiles == 1 ? "1 file" : "\(d.changedFiles) files").foregroundStyle(Color.ghMuted).lineLimit(1).fixedSize()
                     Spacer(minLength: 4)
+                    // These toggles stay in this fixed row, so the description and summary
+                    // can be opened and closed from anywhere in the PR. No animation: growing
+                    // the header resizes the diff below on every frame, which stuttered.
                     if !d.body.isEmpty {
                         Button {
-                            withAnimation(.snappy(duration: 0.2)) { showDescription.toggle() }
+                            showDescription.toggle()
                         } label: {
                             Label(showDescription ? "Hide description" : "Description",
                                   systemImage: showDescription ? "chevron.up" : "text.alignleft")
@@ -34,16 +37,37 @@ struct PRHeaderView: View {
                         }
                         .buttonStyle(GHButtonStyle(kind: .invisible, compact: true))
                     }
+                    // Always here: shows/hides the summary, or generates one if there is none.
+                    let hasSummary = store.summary != nil || store.summaryState.isRunning
+                    let shown = hasSummary && !summaryCollapsed
+                    Button {
+                        if hasSummary { summaryCollapsed.toggle() } else {
+                            summaryCollapsed = false
+                            store.startSummarize()
+                        }
+                    } label: {
+                        Label(shown ? "Hide summary" : "AI summary", systemImage: shown ? "chevron.up" : "sparkles")
+                            .lineLimit(1).fixedSize()
+                    }
+                    .buttonStyle(GHButtonStyle(kind: .invisible, compact: true))
+                    .help(hasSummary ? "Show or hide the AI summary" : "Generate an AI summary and reading order")
                 }
                 .font(.system(size: 12))
-                if showDescription {
-                    MarkdownView(text: d.body)
-                        .padding(12)
-                        .background(Color.ghCanvas, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.ghBorder))
-                        .frame(maxHeight: 260)
+                // A narrow column clips the row instead of growing the detail column past
+                // the window edge (which pushed the diff's Viewed buttons off-screen).
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .clipped()
+                CappedScroll(maxHeight: maxBodyHeight) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if showDescription {
+                            MarkdownView(text: d.body)
+                                .padding(12)
+                                .background(Color.ghCanvas, in: RoundedRectangle(cornerRadius: 6))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.ghBorder))
+                        }
+                        SummaryCard(store: store, collapsed: $summaryCollapsed)
+                    }
                 }
-                SummaryCard(store: store)
                 GitStatusBanner(store: store)
                 if let banner = store.banner {
                     HStack {
@@ -62,7 +86,9 @@ struct PRHeaderView: View {
                 }
             }
             .padding(.horizontal, 16)
+            // The title lives in the window toolbar (navigationTitle), not here.
             .padding(.vertical, 12)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .background(Color.ghCanvas)
         }
     }
@@ -95,14 +121,30 @@ struct BranchLabel: View {
     }
 }
 
+/// Sizes to its content up to `maxHeight`, then scrolls.
+struct CappedScroll<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder var content: Content
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        ScrollView(.vertical) {
+            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: min(contentHeight, maxHeight))
+    }
+}
+
 /// AI summary + reading order (§6.1).
 struct SummaryCard: View {
     let store: PRStore
-    @State private var collapsed = false
+    @Binding var collapsed: Bool
     @State private var expanded = false
 
     var body: some View {
-        if store.summary != nil || store.summaryState != .idle {
+        // Hidden entirely when collapsed; the header's "AI summary" button brings it back.
+        if !collapsed, store.summary != nil || store.summaryState != .idle {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles").foregroundStyle(Color.ghAI)
@@ -110,26 +152,26 @@ struct SummaryCard: View {
                     if case .running(let msg) = store.summaryState {
                         ProgressView().controlSize(.mini)
                         Text(msg).font(.system(size: 11)).foregroundStyle(Color.ghMuted)
+                        Button("Cancel") { store.cancelSummarize() }
+                            .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.ghAccent)
                     }
                     if let s = store.summary, s.headSHA != store.detail?.headOid {
                         Pill(text: "Outdated", color: .ghAttention)
                     }
                     Spacer()
                     if store.summary != nil {
-                        Button { Task { await store.summarize() } } label: { Image(systemName: "arrow.clockwise") }
+                        Button { store.startSummarize() } label: { Image(systemName: "arrow.clockwise") }
                             .buttonStyle(.plain).foregroundStyle(Color.ghMuted).help("Regenerate")
                             .disabled(store.summaryState.isRunning)
-                        Button { collapsed.toggle() } label: { Image(systemName: collapsed ? "chevron.down" : "chevron.up") }
-                            .buttonStyle(.plain).foregroundStyle(Color.ghMuted)
                     }
                 }
                 if case .failed(let e) = store.summaryState {
                     Text(e).font(.system(size: 12)).foregroundStyle(Color.ghDel).lineLimit(4)
                 }
-                if let s = store.summary, !collapsed {
+                if let s = store.summary {
                     // No fixedSize here: in an early layout pass with a tiny width, a fixed-size
                     // long paragraph reports a huge minimum height that stretches the window.
-                    Text(s.summary).font(.system(size: 13)).textSelection(.enabled)
+                    Text(inlineMarkdown: s.summary).font(.system(size: 13)).textSelection(.enabled)
                         .lineLimit(expanded ? nil : 3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if s.summary.count > 240 {
@@ -146,7 +188,7 @@ struct SummaryCard: View {
                                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                                         Text("\(i + 1).").foregroundStyle(Color.ghMuted).frame(width: 18, alignment: .trailing)
                                         Text(item.path).font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.ghAccent)
-                                        Text("— \(item.reason)").foregroundStyle(Color.ghMuted).lineLimit(1)
+                                        Text(inlineMarkdown: "— \(item.reason)").foregroundStyle(Color.ghMuted).lineLimit(1)
                                     }
                                     .font(.system(size: 12))
                                 }
@@ -157,10 +199,25 @@ struct SummaryCard: View {
                     if !s.risks.isEmpty {
                         Text("Risky areas").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.ghMuted)
                         ForEach(Array(s.risks.prefix(expanded ? 50 : 3).enumerated()), id: \.offset) { _, r in
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.ghAttention).font(.system(size: 10))
-                                if let p = r.path { Text(p).font(.system(size: 12, design: .monospaced)) }
-                                Text(r.description).foregroundStyle(Color.ghText).lineLimit(expanded ? nil : 2)
+                            // File on top, explanation underneath.
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.ghAttention).font(.system(size: 10))
+                                    if let p = r.path {
+                                        Button {
+                                            if let f = store.diff?.fileIndex(path: p) { store.scrollToFile(f) }
+                                        } label: {
+                                            Text(p).font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.ghAccent)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        Text("General").font(.system(size: 12, weight: .medium))
+                                    }
+                                }
+                                Text(inlineMarkdown: r.description).foregroundStyle(Color.ghText)
+                                    .lineLimit(expanded ? nil : 2)
+                                    .padding(.leading, 18)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .font(.system(size: 12))
                         }

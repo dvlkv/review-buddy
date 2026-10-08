@@ -124,6 +124,131 @@ import Testing
         #expect(s.selection == nil)
         #expect(s.lines(for: CodeAnchor(path: "nope", side: .right, startLine: 1, endLine: 2)).isEmpty)
     }
+
+    @Test func textSelectionWithinAndAcrossLines() async {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        let line10 = s.lines(for: CodeAnchor(path: s.files[0].path, side: .right, startLine: 10, endLine: 10))[0]
+        // Within one line, dragged right to left.
+        s.select(file: 0, side: .right, line: 10, extend: false, column: 6)
+        s.select(file: 0, side: .right, line: 10, extend: true, column: 2)
+        #expect(s.selection!.isPartial)
+        #expect(s.selection!.columnRange(line: 10) == 2..<6)
+        #expect(s.selectedText() == String(Array(line10)[2..<6]))
+        // Comments still anchor on whole lines.
+        #expect(s.selection!.anchor.startLine == 10 && s.selection!.anchor.endLine == 10)
+        // Across lines: the tail of the first line, the head of the last.
+        s.select(file: 0, side: .right, line: 10, extend: false, column: 3)
+        s.select(file: 0, side: .right, line: 12, extend: true, column: 4)
+        let sel = s.selection!
+        #expect(sel.columnRange(line: 10) == 3..<Int.max)
+        #expect(sel.columnRange(line: 11) == 0..<Int.max)
+        #expect(sel.columnRange(line: 12) == 0..<4)
+        #expect(sel.columnRange(line: 13) == nil)
+        let text = s.selectedText()!.components(separatedBy: "\n")
+        #expect(text.count == 3 && text[0] == String(line10.dropFirst(3)) && text[2].count == 4)
+        // A click without a drag is an empty selection (the canvas clears it).
+        s.select(file: 0, side: .right, line: 10, extend: false, column: 5)
+        #expect(s.isEmptyTextSelection)
+        s.select(file: 0, side: .right, line: 10, extend: true, column: 7)
+        #expect(!s.isEmptyTextSelection)
+        // Whole-line selections (gutter) are never "empty".
+        s.select(file: 0, side: .right, line: 10, extend: false)
+        #expect(!s.isEmptyTextSelection && s.selectedText() == line10)
+    }
+
+    @Test func doubleClickWordRange() {
+        let t = "  const res = await fetch(`/api/${id}`);"
+        func word(_ col: Int) -> String {
+            let r = DiffTableCoordinator.wordRange(in: t, at: col)
+            return String(Array(t)[r])
+        }
+        #expect(word(4) == "const")
+        #expect(word(2) == "const")   // first character
+        #expect(word(9) == "res")
+        #expect(word(18) == "await")
+        #expect(word(12) == "=")       // punctuation selects one character
+        #expect(word(32) == "$")       // `$` joins identifiers, but `{` does not
+        #expect(word(35) == "id")
+        #expect(word(999) == ";")      // past the end: last character
+        #expect(DiffTableCoordinator.wordRange(in: "", at: 3) == 0..<0)
+    }
+}
+
+@MainActor
+@Suite struct ReviewOrderTests {
+    @Test func readingOrderMovesFilesToTopAndCanBeEdited() async {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        let original = s.files.map(\.path)
+        // The diff follows the tree's order once loaded.
+        #expect(original == FileTreeBuilder.displayOrder(paths: original).map { original[$0] })
+        let a = original[original.count - 1], b = original[original.count / 2]
+        s.setSummary(AISummary(summary: "x", readingOrder: [.init(path: a, reason: "core"), .init(path: b, reason: "uses")], risks: []),
+                     state: .idle)
+        #expect(s.files.prefix(2).map(\.path) == [a, b])
+        #expect(s.reviewFirstCount == 2)
+        #expect(s.files.count == original.count && Set(s.files.map(\.path)) == Set(original))
+        // Viewed state follows the path, not the index.
+        s.toggleViewed(0)
+        #expect(s.isViewed(s.diff!.fileIndex(path: a)!))
+        s.moveInReviewOrder(b, by: -1)
+        #expect(s.files.prefix(2).map(\.path) == [b, a])
+        let c = original[1]
+        s.addToReviewOrder(c)
+        #expect(s.files.prefix(3).map(\.path) == [b, a, c])
+        s.removeFromReviewOrder(a)
+        #expect(s.files.prefix(2).map(\.path) == [b, c] && s.reviewFirstCount == 2)
+        s.resetReviewOrder()
+        #expect(s.files.prefix(2).map(\.path) == [a, b])
+    }
+}
+
+@MainActor
+@Suite struct ConversationCommentTests {
+    @Test func postsAndAppendsComment() async {
+        let h = Harness()
+        await h.load()
+        let before = h.store.detail?.conversation?.comments.count ?? 0
+        #expect(await h.store.addConversationComment("  ") == nil) // blank: nothing sent
+        #expect(await h.store.addConversationComment("Looks good") == nil)
+        #expect(h.store.detail?.conversation?.comments.count == before + 1)
+        #expect(h.store.detail?.conversation?.comments.last?.body == "Looks good")
+    }
+}
+
+@MainActor
+@Suite struct MergeTests {
+    @Test func mergeReloadsAsMerged() async {
+        let h = Harness()
+        await h.load()
+        #expect(h.store.detail?.state == "OPEN")
+        #expect(await h.store.mergePullRequest(method: .squash) == nil)
+        #expect(h.store.detail?.state == "MERGED")
+    }
+
+    @Test func closeAndReopen() async {
+        let h = Harness()
+        await h.load()
+        #expect(await h.store.setClosed(true) == nil)
+        #expect(h.store.detail?.state == "CLOSED")
+        #expect(await h.store.setClosed(false) == nil)
+        #expect(h.store.detail?.state == "OPEN")
+    }
+
+    @Test func canMergeFollowsMergeState() {
+        var st = PRMergeStatus(mergeable: "MERGEABLE", mergeStateStatus: "CLEAN")
+        #expect(st.canMerge)
+        #expect(!st.canBypass)
+        st.mergeStateStatus = "BLOCKED"
+        #expect(!st.canMerge && !st.canBypass)
+        st.viewerCanMergeAsAdmin = true
+        #expect(!st.canMerge && st.canBypass) // only with the bypass checkbox
+        st.mergeable = "CONFLICTING"
+        #expect(!st.canMerge && !st.canBypass)
+    }
 }
 
 @MainActor

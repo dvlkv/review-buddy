@@ -64,6 +64,20 @@ extension DiffTableCoordinator {
         }
     }
 
+    /// The text drawn for `side` of a code row.
+    func renderedLine(row: LayoutRow, side: DiffSide) -> RenderedLine? {
+        guard let renderer else { return nil }
+        let lines = sideLines(for: row)
+        if let u = lines.unified, let li = u.lineIndex { return renderer.rendered(file: Int(row.file), line: li) }
+        // Expanded rows in unified mode draw one combined line (the right side).
+        let geo = geometry(width: width)
+        let sl = geo.mode == .unified ? lines.right : (side == .left ? lines.left : lines.right)
+        guard let sl else { return nil }
+        if let e = sl.expandedNew { return renderer.renderedExpanded(file: Int(row.file), newLine: e) }
+        if let li = sl.lineIndex { return renderer.rendered(file: Int(row.file), line: li) }
+        return nil
+    }
+
     func drawCodeRow(_ row: LayoutRow, rowIndex: Int, in bounds: CGRect, ctx: CGContext) {
         guard let store, let diff = store.diff, let renderer else { return }
         let m = DiffMetrics.shared
@@ -79,10 +93,20 @@ extension DiffTableCoordinator {
             ctx.fill(rect)
         }
 
-        func drawText(_ r: RenderedLine, x: CGFloat, clipWidth: CGFloat, emphasisColor: NSColor?) {
+        func drawText(_ r: RenderedLine, x: CGFloat, clipWidth: CGFloat, emphasisColor: NSColor?, highlight: Range<Int>? = nil) {
             ctx.saveGState()
             ctx.clip(to: CGRect(x: x, y: 0, width: max(0, clipWidth), height: h))
             let ox = x + 8 - hOffset
+            if let highlight {
+                // Text selection: the dragged-over characters, plus a sliver for the
+                // newline when the selection continues onto the next line.
+                let len = CTLineGetStringRange(r.line).length
+                let x0 = CTLineGetOffsetForStringIndex(r.line, min(highlight.lowerBound, len), nil)
+                var x1 = CTLineGetOffsetForStringIndex(r.line, min(highlight.upperBound, len), nil)
+                if highlight.upperBound > len { x1 += m.charWidth / 2 }
+                ctx.setFillColor(TargetSpace.convert(Theme.textSelection.cgColor))
+                ctx.fill(CGRect(x: ox + x0, y: 0, width: max(0, x1 - x0), height: h))
+            }
             if let emphasisColor {
                 ctx.setFillColor(TargetSpace.convert(emphasisColor.cgColor))
                 for span in r.emphasis {
@@ -142,14 +166,18 @@ extension DiffTableCoordinator {
             let n = dl.lineNumber(on: side)
             let selected = sel.map { $0.file == file && $0.contains(side: side, line: n) } ?? false
                 || (dl.kind == .context && (sel.map { $0.file == file && $0.contains(side: .left, line: Int(dl.oldLine)) } ?? false))
-            let c = colors(dl.kind, selected: selected)
+            // A text selection highlights characters; the gutter still marks the lines.
+            let partial = selected && sel?.isPartial == true
+            let c = colors(dl.kind, selected: selected && !partial)
             fill(c.bg, bounds)
-            fill(c.num, CGRect(x: 0, y: 0, width: geo.numWidth * 2, height: h))
+            fill(partial ? Theme.selectedNumBg : c.num, CGRect(x: 0, y: 0, width: geo.numWidth * 2, height: h))
             drawNumber(Int(dl.oldLine), right: geo.numWidth)
             drawNumber(Int(dl.newLine), right: geo.numWidth * 2)
             drawMarker(dl.kind, x: geo.numWidth * 2)
+            let selLine = sel?.side == .left ? Int(dl.oldLine) : Int(dl.newLine)
             drawText(renderer.rendered(file: file, line: li), x: geo.codeX(side: .right),
-                     clipWidth: geo.codeWidth(side: .right), emphasisColor: c.word)
+                     clipWidth: geo.codeWidth(side: .right), emphasisColor: c.word,
+                     highlight: partial ? sel?.columnRange(line: selLine) : nil)
             return
         }
 
@@ -168,14 +196,16 @@ extension DiffTableCoordinator {
             }
             let n = sl?.number ?? 0
             let selected = sl != nil && (sel.map { $0.file == file && $0.contains(side: side, line: n) } ?? false)
-            let c = colors(sl?.kind, selected: selected)
+            let partial = selected && sel?.isPartial == true
+            let c = colors(sl?.kind, selected: selected && !partial)
+            let numColor = partial ? Theme.selectedNumBg : c.num
             fill(c.bg, CGRect(x: x0, y: 0, width: halfW, height: h))
             if geo.mode == .unified {
-                fill(c.num, CGRect(x: 0, y: 0, width: geo.numWidth * 2, height: h))
+                fill(numColor, CGRect(x: 0, y: 0, width: geo.numWidth * 2, height: h))
                 drawNumber(lines.left?.number ?? 0, right: geo.numWidth)
                 drawNumber(lines.right?.number ?? 0, right: geo.numWidth * 2)
             } else {
-                fill(c.num, CGRect(x: x0, y: 0, width: geo.numWidth, height: h))
+                fill(numColor, CGRect(x: x0, y: 0, width: geo.numWidth, height: h))
                 drawNumber(n, right: x0 + geo.numWidth)
                 drawMarker(sl?.kind, x: x0 + geo.numWidth)
             }
@@ -185,7 +215,8 @@ extension DiffTableCoordinator {
             else if let li = sl.lineIndex { rendered = renderer.rendered(file: file, line: li) }
             else { rendered = nil }
             if let rendered {
-                drawText(rendered, x: geo.codeX(side: side), clipWidth: geo.codeWidth(side: side), emphasisColor: c.word)
+                drawText(rendered, x: geo.codeX(side: side), clipWidth: geo.codeWidth(side: side), emphasisColor: c.word,
+                         highlight: partial ? sel?.columnRange(line: n) : nil)
             }
         }
         if geo.mode == .split {

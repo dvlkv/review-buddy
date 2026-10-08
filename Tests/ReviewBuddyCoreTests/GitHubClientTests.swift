@@ -122,6 +122,84 @@ func makeClient(_ handler: @escaping @Sendable (URLRequest, String, [String: Any
         #expect(t.sent.count == 1)
     }
 
+    @Test func pullRequestConversation() async throws {
+        let extra = #"""
+        ,"comments":{"nodes":[{"id":"IC1","body":"LGTM?","createdAt":"2026-01-03T00:00:00Z","url":"https://github.com/c","author":{"login":"carol","avatarUrl":null}}]},
+        "allReviews":{"nodes":[
+          {"id":"RV1","state":"APPROVED","body":"","submittedAt":"2026-01-04T00:00:00Z","url":null,"author":{"login":"dave","avatarUrl":null}},
+          {"id":"RV2","state":"PENDING","body":"draft","submittedAt":null,"url":null,"author":{"login":"me","avatarUrl":null}}]},
+        "commits":{"nodes":[
+          {"commit":{"oid":"abc123","messageHeadline":"Fix it","committedDate":"2026-01-01T00:00:00Z","author":{"name":"Eve","user":{"login":"eve","avatarUrl":null}},"statusCheckRollup":{"state":"FAILURE"}}},
+          {"commit":{"oid":"def456","messageHeadline":"Bot commit","committedDate":"2026-01-02T00:00:00Z","author":{"name":"Some Bot","user":null},"statusCheckRollup":null}}]}
+        """#
+        // Splice the conversation fields into the pullRequest object.
+        var spliced = prJSON(filesNext: false, threadsNext: false)
+        let close = spliced.range(of: "}}}}", options: .backwards)!
+        spliced.insert(contentsOf: extra, at: close.lowerBound)
+        let body = spliced
+        let (c, _) = makeClient { _, _, _ in (200, body) }
+        let conv = try #require(try await c.pullRequest(PRRef(owner: "o", repo: "r", number: 1)).conversation)
+        #expect(conv.comments.map(\.author) == ["carol"])
+        #expect(conv.reviews.map(\.state) == ["APPROVED"]) // the viewer's pending draft is left out
+        #expect(conv.commits.map(\.author) == ["eve", "Some Bot"]) // name when there's no GitHub user
+        #expect(conv.commits[0].checks == .failure && conv.commits[1].checks == CheckState.none)
+    }
+
+    @Test func pullRequestMergeStatusAndChecks() async throws {
+        let extra = #"""
+        ,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","viewerCanMergeAsAdmin":false,
+        "headCommit":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+          {"__typename":"CheckRun","name":"test","conclusion":"FAILURE","status":"COMPLETED","detailsUrl":"https://ci/1","checkSuite":{"app":{"name":"GitHub Actions"}}},
+          {"__typename":"CheckRun","name":"build","conclusion":null,"status":"IN_PROGRESS","detailsUrl":null,"checkSuite":null},
+          {"__typename":"StatusContext","context":"ci/legacy","state":"EXPECTED","targetUrl":null}]}}}}]}
+        """#
+        var spliced = prJSON(filesNext: false, threadsNext: false)
+        spliced.insert(contentsOf: extra, at: spliced.range(of: "}}}}", options: .backwards)!.lowerBound)
+        let body = spliced
+        let (c, _) = makeClient { _, _, _ in (200, body) }
+        let st = try #require(try await c.pullRequest(PRRef(owner: "o", repo: "r", number: 1)).status)
+        #expect(st.mergeStateStatus == "BLOCKED" && st.reviewDecision == "REVIEW_REQUIRED")
+        #expect(st.checks.map(\.name) == ["test", "build", "ci/legacy"])
+        #expect(st.viewerCanMergeAsAdmin == false) // fixture viewer has WRITE, not ADMIN
+        #expect(st.checks[0].isFailure && st.checks[0].app == "GitHub Actions")
+        #expect(st.checks[1].isPending && st.checks[2].isPending) // no conclusion yet; EXPECTED status
+    }
+
+    @Test func addCommentMutation() async throws {
+        let (c, t) = makeClient { _, _, _ in
+            (200, #"{"data":{"addComment":{"commentEdge":{"node":{"id":"IC9","body":"hi","createdAt":"2026-01-05T00:00:00Z","url":null,"author":{"login":"me","avatarUrl":null}}}}}}"#)
+        }
+        let comment = try await c.addComment(subjectId: "PR_1", body: "hi")
+        #expect(comment.id == "IC9" && comment.author == "me")
+        #expect(t.sent[0].variables["subject"] as? String == "PR_1")
+    }
+
+    @Test func mergePullRequestMutation() async throws {
+        let (c, t) = makeClient { _, _, _ in (200, #"{"data":{"mergePullRequest":{"pullRequest":{"state":"MERGED"}}}}"#) }
+        try await c.mergePullRequest(id: "PR_1", method: .squash, expectedHeadOid: "abc")
+        #expect(t.sent[0].query.contains("mergePullRequest"))
+        #expect(t.sent[0].variables["method"] as? String == "SQUASH")
+        #expect(t.sent[0].variables["head"] as? String == "abc")
+        let (c2, _) = makeClient { _, _, _ in
+            (200, #"{"data":{"mergePullRequest":null},"errors":[{"type":"UNPROCESSABLE","message":"Head branch was modified. Review and try the merge again."}]}"#)
+        }
+        await #expect(throws: (any Error).self) { try await c2.mergePullRequest(id: "PR_1", method: .merge, expectedHeadOid: "old") }
+    }
+
+    @Test func closeAndReopenMutations() async throws {
+        let (c, t) = makeClient { _, _, _ in (200, #"{"data":{"closePullRequest":{"pullRequest":{"state":"CLOSED"}}}}"#) }
+        try await c.setPullRequestClosed(id: "PR_1", closed: true)
+        try await c.setPullRequestClosed(id: "PR_1", closed: false)
+        #expect(t.sent[0].query.contains("closePullRequest") && t.sent[1].query.contains("reopenPullRequest"))
+        #expect(t.sent[0].variables["id"] as? String == "PR_1")
+    }
+
+    @Test func pullRequestWithoutConversationFields() async throws {
+        let body = prJSON(filesNext: false, threadsNext: false)
+        let (c, _) = makeClient { _, _, _ in (200, body) }
+        #expect(try await c.pullRequest(PRRef(owner: "o", repo: "r", number: 1)).conversation == nil)
+    }
+
     @Test func pullRequestNullIsNotFound() async {
         let (c, _) = makeClient { _, _, _ in (200, #"{"data":{"viewer":{"login":"me"},"repository":{"viewerPermission":"READ","pullRequest":null}}}"#) }
         await #expect(throws: GitHubError.notFound) { try await c.pullRequest(PRRef(owner: "o", repo: "r", number: 1)) }

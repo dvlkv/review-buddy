@@ -31,6 +31,8 @@ public enum Theme {
     public static let emptyBg = dyn(0xF6F8FA, 0x151B23, 1, 0.6)
     public static let selectedBg = dyn(0xFFF8C5, 0xBB8009, 1, 0.15)
     public static let selectedNumBg = dyn(0xFFF1A6, 0xBB8009, 1, 0.3)
+    /// Character (text) selection inside a line.
+    public static let textSelection = dyn(0x0969DA, 0x388BFD, 0.22, 0.35)
     public static let addMarker = dyn(0x1A7F37, 0x3FB950)
     public static let delMarker = dyn(0xD1242F, 0xF85149)
     public static let aiAccent = dyn(0x8250DF, 0xAB7DF8)
@@ -129,7 +131,7 @@ public final class DiffMetrics {
     public private(set) var charWidth: CGFloat
     public private(set) var lineHeight: CGFloat
     public private(set) var ascent: CGFloat
-    public let fileHeaderHeight: CGFloat = 46
+    public let fileHeaderHeight: CGFloat = 38
     public let hunkHeaderHeight: CGFloat = 24
     public let placeholderHeight: CGFloat = 64
     public let markerWidth: CGFloat = 22

@@ -45,24 +45,31 @@ public final class InboxStore {
     public func refresh() async {
         rebuildSections()
         for i in sections.indices { sections[i].isLoading = true }
-        await withTaskGroup(of: (String, Result<[PRSummary], Error>).self) { group in
-            for s in sections {
-                let api = services.github
-                group.addTask {
-                    do { return (s.id, .success(try await api.search(s.query))) } catch { return (s.id, .failure(error)) }
-                }
-            }
-            for await (id, result) in group {
-                guard let i = sections.firstIndex(where: { $0.id == id }) else { continue }
-                sections[i].isLoading = false
-                switch result {
-                case .success(let items): sections[i].items = items; sections[i].error = nil
-                case .failure(let e): sections[i].error = e.localizedDescription
-                }
+        let api = services.github
+        // One task per section, each applying its own result as soon as it arrives.
+        // Not a task group: with Swift 6.3 in release builds, `withTaskGroup` here
+        // finished without yielding any child results, so every section spun forever.
+        let tasks = sections.map { section in
+            Task { @MainActor [weak self] in
+                let result: Result<[PRSummary], Error>
+                do { result = .success(try await api.search(section.query)) } catch { result = .failure(error) }
+                self?.apply(id: section.id, result: result)
             }
         }
+        for t in tasks { await t.value }
         lastRefresh = Date()
         notifyNewReviewRequests()
+    }
+
+    private func apply(id: String, result: Result<[PRSummary], Error>) {
+        guard let i = sections.firstIndex(where: { $0.id == id }) else { return }
+        var section = sections[i]
+        section.isLoading = false
+        switch result {
+        case .success(let items): section.items = items; section.error = nil
+        case .failure(let e): section.error = e.localizedDescription
+        }
+        sections[i] = section
     }
 
     public func startAutoRefresh() {
@@ -108,7 +115,10 @@ public final class AppModel {
     public private(set) var current: PRStore?
     public var showOpenURL = false
     public var showPalette = false
-    public var showDiscussPanel = true
+    /// Left column (inbox). The file tree column stays; the user can drag it closed.
+    public var showSidebar = true
+    /// Closed until a discussion starts (or the user toggles it with ⌘\).
+    public var showDiscussPanel = false
     public var showSubmitReview = false
     public var showPushSheet = false
     public var startupError: String?
@@ -143,6 +153,10 @@ public final class AppModel {
         }
         let s = await Services.live()
         install(services: s)
+        // Load the inbox alongside any PR opened at launch, not after it: a big PR
+        // can take a long time to load and the sidebar would sit empty meanwhile.
+        let inbox = self.inbox
+        Task { await inbox?.refresh() }
         if let j = arguments.firstIndex(of: "--ui-script"), j + 1 < arguments.count {
             let dirIdx = arguments.firstIndex(of: "--snap-dir")
             let dir = URL(fileURLWithPath: dirIdx.map { arguments[$0 + 1] } ?? NSTemporaryDirectory())
@@ -151,7 +165,6 @@ public final class AppModel {
         if let i = arguments.firstIndex(of: "--open"), i + 1 < arguments.count, let ref = PRRef(string: arguments[i + 1]) {
             await open(ref)
         }
-        await inbox?.refresh()
     }
 
     public func install(services: Services) {

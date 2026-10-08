@@ -319,6 +319,17 @@ final class CanvasRig {
 
 @MainActor
 @Suite struct FileTreeBuilderTests {
+    @Test func displayOrderMatchesTree() {
+        // Folders first, then files, case-insensitive — and "Feature10" before "Feature2".
+        let paths = ["b/x.go", "a.go", "a/z.go", "B.go", "f/Feature2/y.go", "f/Feature10/y.go"]
+        #expect(FileTreeBuilder.displayOrder(paths: paths) == [2, 0, 5, 4, 1, 3])
+        #expect(FileTreeBuilder.displayOrder(paths: paths, priority: [3, 1]) == [3, 1, 2, 0, 5, 4])
+        let rows = FileTreeBuilder.rows(paths: paths, priority: [3])
+        #expect(rows.first?.isSection == true && rows[1].fileIndex == 3 && rows[1].rank == 1)
+        #expect(rows[2].name == "All files")
+        #expect(!rows.dropFirst(3).contains { $0.fileIndex == 3 }) // listed once
+    }
+
     @Test func compressionAndOrdering() {
         let paths = ["src/app/main.go", "src/app/main_test.go", "src/app/a/x.go", "README.md", "docs/guide/intro.md"]
         let rows = FileTreeBuilder.rows(paths: paths)

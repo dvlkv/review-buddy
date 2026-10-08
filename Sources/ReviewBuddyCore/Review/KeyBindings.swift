@@ -5,7 +5,7 @@ import Foundation
 public enum ReviewAction: String, CaseIterable, Sendable, Identifiable {
     case nextFile, previousFile, nextHunk, previousHunk, nextThread, previousThread
     case toggleViewed, comment, discuss, reply, toggleSplit, openByURL, commandPalette
-    case submit, toggleDiscussPanel, cancel, summarize, preReview, refresh, pushFixes
+    case submit, toggleSidebar, toggleDiscussPanel, cancel, summarize, preReview, refresh, pushFixes
     case expandAllThreads, collapseFile
 
     public var id: String { rawValue }
@@ -26,6 +26,7 @@ public enum ReviewAction: String, CaseIterable, Sendable, Identifiable {
         case .openByURL: "Open pull request by URL…"
         case .commandPalette: "Command palette"
         case .submit: "Submit"
+        case .toggleSidebar: "Toggle inbox sidebar"
         case .toggleDiscussPanel: "Toggle Discuss panel"
         case .cancel: "Cancel"
         case .summarize: "Summarize pull request"
@@ -54,6 +55,7 @@ public enum ReviewAction: String, CaseIterable, Sendable, Identifiable {
         case .openByURL: "⌘L"
         case .commandPalette: "⌘K"
         case .submit: "⌘↩"
+        case .toggleSidebar: "⌃⌘S"
         case .toggleDiscussPanel: "⌘\\"
         case .cancel: "Esc"
         case .refresh: "⌘R"
@@ -83,6 +85,7 @@ public enum KeyBindings {
         KeyStroke("r"): .reply, KeyStroke("s"): .toggleSplit, KeyStroke("x"): .collapseFile,
         KeyStroke("l", command: true): .openByURL, KeyStroke("k", command: true): .commandPalette,
         KeyStroke("\r", command: true): .submit, KeyStroke("\\", command: true): .toggleDiscussPanel,
+        KeyStroke("s", command: true, control: true): .toggleSidebar,
         KeyStroke("\u{1b}"): .cancel, KeyStroke("r", command: true): .refresh,
     ]
 

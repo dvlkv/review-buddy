@@ -309,4 +309,5 @@ struct TypingIndicator: View {
 
 extension Notification.Name {
     static let rbShowPush = Notification.Name("rbShowPush")
+    static let rbToggleDiscussPanel = Notification.Name("rbToggleDiscussPanel")
 }

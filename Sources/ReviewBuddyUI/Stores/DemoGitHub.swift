@@ -42,8 +42,34 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
             baseOid: String(repeating: "a", count: 40), headOid: String(repeating: "b", count: 40),
             headRepoNameWithOwner: ref.nameWithOwner, maintainerCanModify: true, viewerLogin: "you", viewerCanPush: true,
             files: files, threads: threads, changedFiles: diff.files.count,
-            additions: diff.files.reduce(0) { $0 + $1.additions }, deletions: diff.files.reduce(0) { $0 + $1.deletions })
+            additions: diff.files.reduce(0) { $0 + $1.additions }, deletions: diff.files.reduce(0) { $0 + $1.deletions },
+            conversation: demoConversation,
+            status: PRMergeStatus(mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", reviewDecision: "REVIEW_REQUIRED", checks: [
+                .init(name: "build", app: "GitHub Actions", state: "SUCCESS"),
+                .init(name: "test", app: "GitHub Actions", state: "FAILURE"),
+                .init(name: "lint", app: "GitHub Actions", state: "PENDING"),
+            ], allowedMergeMethods: [.merge, .squash], defaultMergeMethod: .squash))
         return DemoGitHub(diff: Data(text.utf8), detail: detail)
+    }
+
+    /// A small conversation so the synthetic PR's Conversation screen isn't empty.
+    static var demoConversation: PRConversation {
+        let base = Date(timeIntervalSinceNow: -5 * 86_400)
+        func at(_ h: Double) -> Date { base.addingTimeInterval(h * 3600) }
+        return PRConversation(
+            comments: [
+                .init(id: "IC1", author: "octocat", body: "Could we split the scoring change into its own PR?", createdAt: at(30)),
+                .init(id: "IC2", author: "monalisa", body: "Kept it here — the call sites change together. Added tests instead.", createdAt: at(52)),
+            ],
+            reviews: [
+                .init(id: "RV1", author: "octocat", state: "CHANGES_REQUESTED", body: "A couple of edge cases need handling.", submittedAt: at(31)),
+                .init(id: "RV2", author: "hubot", state: "APPROVED", body: "", submittedAt: at(70)),
+            ],
+            commits: [
+                .init(oid: "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b", headline: "Move scoring into Result", author: "monalisa", date: at(0), checks: .success),
+                .init(oid: "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c", headline: "Add async fetching", author: "monalisa", date: at(5), checks: .success),
+                .init(oid: "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d", headline: "Handle empty input; add tests", author: "monalisa", date: at(50), checks: .failure),
+            ])
     }
 
     private func record(_ s: String) { lock.withLock { calls.append(s) } }
@@ -86,6 +112,11 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
         return ReviewComment(id: newId("C"), body: body, author: "you", createdAt: Date(), isPending: reviewId != nil, viewerDidAuthor: true)
     }
 
+    public func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment {
+        record("addComment")
+        return .init(id: newId("IC"), author: "you", body: body, createdAt: Date())
+    }
+
     public func updateComment(id: String, body: String) async throws -> ReviewComment {
         record("updateComment")
         return ReviewComment(id: id, body: body, author: "you", createdAt: Date(), isPending: true, viewerDidAuthor: true)
@@ -95,6 +126,14 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
     public func submitReview(reviewId: String, event: ReviewEvent, body: String) async throws {
         record("submitReview:\(event.rawValue)")
         lock.withLock { detail.pendingReviewId = nil }
+    }
+    public func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
+        record("merge:\(method.rawValue)")
+        lock.withLock { detail.state = "MERGED" }
+    }
+    public func setPullRequestClosed(id: String, closed: Bool) async throws {
+        record(closed ? "close" : "reopen")
+        lock.withLock { detail.state = closed ? "CLOSED" : "OPEN" }
     }
     public func deleteReview(reviewId: String) async throws { record("deleteReview") }
     public func setResolved(threadId: String, resolved: Bool) async throws -> Bool { record("setResolved:\(resolved)"); return resolved }

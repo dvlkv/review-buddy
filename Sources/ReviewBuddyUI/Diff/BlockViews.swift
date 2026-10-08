@@ -290,7 +290,9 @@ struct DiscussMarkerView: View {
             let controller = store.controllers[discussId]
             let running = controller?.isRunning ?? false
             Button {
-                store.activeDiscussId = discussId
+                // Clicking the open conversation again shows or hides the panel.
+                if active { NotificationCenter.default.post(name: .rbToggleDiscussPanel, object: nil) }
+                else { store.activeDiscussId = discussId }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkle").foregroundStyle(Color.ghAI)

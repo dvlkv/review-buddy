@@ -11,7 +11,8 @@ struct FileHeaderRenderer {
         var viewed = CGRect.zero
     }
 
-    static let gap: CGFloat = 8
+    /// Canvas strip above each header bar; 0 so files (and the first one) sit flush.
+    static let gap: CGFloat = 0
 
     static func draw(store: PRStore, file: Int, in bounds: CGRect, ctx: CGContext, hoverViewed: Bool, appearance: NSAppearance) -> HitRects {
         var hits = HitRects()
