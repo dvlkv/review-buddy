@@ -145,7 +145,17 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
     public func deleteComment(id: String) async throws { record("deleteComment") }
     public func submitReview(reviewId: String, event: ReviewEvent, body: String) async throws {
         record("submitReview:\(event.rawValue)")
-        lock.withLock { detail.pendingReviewId = nil }
+        let state = switch event {
+        case .approve: "APPROVED"
+        case .requestChanges: "CHANGES_REQUESTED"
+        case .comment: "COMMENTED"
+        }
+        lock.withLock {
+            detail.pendingReviewId = nil
+            var conv = detail.conversation ?? PRConversation()
+            conv.reviews.append(.init(id: "R\(conv.reviews.count + 1)", author: "you", state: state, body: body, submittedAt: Date()))
+            detail.conversation = conv
+        }
     }
     public func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
         record("merge:\(method.rawValue)")

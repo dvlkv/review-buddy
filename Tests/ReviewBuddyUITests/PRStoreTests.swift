@@ -418,6 +418,19 @@ import Testing
         #expect(s.threads.count == threadsBefore - 1)
     }
 
+    @Test func submittedReviewShowsInSummaryHistory() async {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        s.startComment(anchor(s, 1, 13), text: "c")
+        await s.submitComposer(s.composers.values.first!.id)
+        s.reviewBody = "Please fix the naming"
+        #expect(await s.submitReview(event: .requestChanges))
+        let last = s.detail?.conversation?.reviews.last
+        #expect(last?.state == "CHANGES_REQUESTED")
+        #expect(last?.body == "Please fix the naming")
+    }
+
     @Test func discardWithoutPendingIsNoop() async {
         let h = Harness()
         await h.load()

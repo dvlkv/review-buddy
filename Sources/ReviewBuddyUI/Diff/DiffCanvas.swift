@@ -332,6 +332,25 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
         hOffset = 0
     }
 
+    /// The canvas is reused when another PR opens: drop everything drawn or cached for
+    /// the old one. File indices and diff identities can repeat across PRs.
+    func storeDidChange() {
+        installedDiff = nil
+        shownLayout = nil
+        recycleAllTiles()
+        for id in Array(blockViews.keys) { returnToPool(id) }
+        blockHeights.removeAll()
+        blockViewWidth.removeAll()
+        headerHits.removeAll()
+        loadDiffRects.removeAll()
+        hover = nil
+        hoverPlus?.isHidden = true
+        dragAnchor = nil
+        selectionBarPoint = nil
+        selectionBar?.removeFromSuperview()
+        selectionBar = nil
+    }
+
     public func layoutDidChange(preserveScroll: Bool) {
         guard canvas != nil else { return }
         Perf.shared.count("layoutDidChange")

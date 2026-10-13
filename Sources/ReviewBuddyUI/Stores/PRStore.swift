@@ -662,10 +662,18 @@ public final class PRStore {
     }
 
     /// Re-reads threads from GitHub (the REST single-comment endpoints don't return the thread).
+    /// Refetches what a single comment changes: its thread, and the conversation (it's a review there).
     private func reloadThreads() async throws {
         let d = try await services.github.pullRequest(ref)
         threads = Dictionary(uniqueKeysWithValues: d.threads.map { ($0.id, $0) })
         detail?.threads = d.threads
+        applyConversation(of: d)
+    }
+
+    /// The Summary's history and review status, from a fresh fetch.
+    private func applyConversation(of d: PRDetail) {
+        if let c = d.conversation { detail?.conversation = c }
+        if let s = d.status { detail?.status = s }
     }
 
     public func deleteComment(threadId: String, commentId: String) async {
@@ -709,6 +717,9 @@ public final class PRStore {
             }
             submitState = .idle
             banner = event == .approve ? "Approved ✓" : "Review submitted"
+            // Show the review in the Summary's history and update the review status.
+            // Threads are already up to date locally.
+            if let d = try? await services.github.pullRequest(ref) { applyConversation(of: d) }
             return true
         } catch {
             submitState = .failed(error.localizedDescription)

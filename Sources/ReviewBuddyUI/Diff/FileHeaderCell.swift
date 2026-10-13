@@ -171,7 +171,9 @@ enum Symbols {
 /// The sticky header pinned to the top of the diff while its file scrolls by.
 @MainActor
 final class StickyHeaderView: NSView {
-    weak var store: PRStore?
+    /// The view is reused across PRs; a new store means the drawn header is stale even
+    /// when the file index is the same.
+    weak var store: PRStore? { didSet { if store !== oldValue { file = -1; hoverViewed = false; needsDisplay = true } } }
     var file = -1 { didSet { if file != oldValue { needsDisplay = true } } }
     private var hits = FileHeaderRenderer.HitRects()
     private var hoverViewed = false

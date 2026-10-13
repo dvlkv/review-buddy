@@ -55,6 +55,7 @@ public struct DiffView: NSViewRepresentable {
         if c.store !== store {
             c.store = store
             c.sticky?.store = store
+            c.storeDidChange()
             store.view = c
             c.layoutDidChange(preserveScroll: false)
         }

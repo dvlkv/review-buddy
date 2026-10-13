@@ -36,8 +36,8 @@ enum Queries {
           files(first: 100) { pageInfo { hasNextPage endCursor } nodes { path additions deletions viewerViewedState } }
           reviewThreads(first: 100) { pageInfo { hasNextPage endCursor } nodes { \(threadFields) } }
           reviews(states: [PENDING], first: 5) { nodes { id viewerDidAuthor } }
-          comments(first: 100) { nodes { id body createdAt url author { login avatarUrl } } }
-          allReviews: reviews(first: 100) { nodes { id state body submittedAt url author { login avatarUrl } } }
+          comments(last: 100) { nodes { id body createdAt url author { login avatarUrl } } }
+          allReviews: reviews(last: 100) { nodes { id state body submittedAt url author { login avatarUrl } } }
           commits(first: 250) { nodes { commit { oid messageHeadline committedDate author { name user { login avatarUrl } } statusCheckRollup { state } } } }
           mergeable mergeStateStatus reviewDecision viewerCanMergeAsAdmin
           headCommit: commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
@@ -410,6 +410,8 @@ struct PRData: Decodable {
                                  viewerCanMergeAsAdmin: viewerCanMergeAsAdmin.map { $0 || repo.viewerPermission == "ADMIN" })
         }
 
+        /// Built from the newest 100 comments and reviews (`last: 100`): every single comment
+        /// is a review too, so busy PRs pass 100 quickly.
         var conversation: PRConversation? {
             guard comments != nil || allReviews != nil || commits != nil else { return nil }
             return PRConversation(
