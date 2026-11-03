@@ -857,10 +857,15 @@ public final class PRStore {
     }
 
     /// Merges the PR on GitHub, then reloads it. Returns an error message on failure.
-    public func mergePullRequest(method: MergeMethod) async -> String? {
+    public func mergePullRequest(method: MergeMethod, bypassRules: Bool = false) async -> String? {
         guard let d = detail else { return nil }
         do {
-            try await services.github.mergePullRequest(id: d.nodeId, method: method, expectedHeadOid: d.headOid)
+            switch try await services.github.mergePullRequest(ref: ref, id: d.nodeId, method: method,
+                                                               expectedHeadOid: d.headOid, bypassRules: bypassRules) {
+            case .merged: break
+            case .enqueued: banner = "Added to the merge queue"
+            case .pending: banner = "GitHub is still merging #\(ref.number); refresh in a moment"
+            }
         } catch {
             return error.localizedDescription
         }

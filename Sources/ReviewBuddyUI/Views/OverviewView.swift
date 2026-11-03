@@ -463,7 +463,7 @@ struct MergeButton: View {
                     Button {
                         Task {
                             merging = true
-                            error = await store.mergePullRequest(method: method)
+                            error = await store.mergePullRequest(method: method, bypassRules: bypass && !status.canMerge)
                             merging = false
                             confirming = false
                         }

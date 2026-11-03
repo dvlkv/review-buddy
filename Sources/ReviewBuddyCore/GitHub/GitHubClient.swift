@@ -103,7 +103,10 @@ public protocol GitHubAPI: Sendable {
     /// A PR (issue) comment, outside any review.
     func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment
     /// Merges the PR; fails if the head moved past `expectedHeadOid` since it was loaded.
-    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws
+    /// Merges the PR. `ref` and `bypassRules` are used by the asynchronous REST merge, which
+    /// GitHub requires for stacked PRs.
+    func mergePullRequest(ref: PRRef, id: String, method: MergeMethod, expectedHeadOid: String,
+                          bypassRules: Bool) async throws -> MergeResult
     /// Closes (`closed: true`) or reopens the PR without merging.
     func setPullRequestClosed(id: String, closed: Bool) async throws
     func updateComment(id: String, body: String) async throws -> ReviewComment
@@ -114,10 +117,21 @@ public protocol GitHubAPI: Sendable {
     func setViewed(pullRequestId: String, path: String, viewed: Bool) async throws
 }
 
+/// How a merge request ended.
+public enum MergeResult: Equatable, Sendable {
+    case merged
+    /// Added to a merge queue; it merges later.
+    case enqueued
+    /// Accepted and still running in the background when we stopped waiting.
+    case pending
+}
+
 public final class GitHubClient: GitHubAPI, @unchecked Sendable {
     let transport: HTTPTransport
     let tokens: TokenProvider
     let apiBase: URL
+    /// Between polls of an asynchronous merge (tests set it to zero).
+    var asyncMergePollInterval: Duration = .seconds(1)
 
     public init(transport: HTTPTransport = URLSessionTransport(), tokens: TokenProvider = GHTokenProvider(),
                 apiBase: URL = URL(string: "https://api.github.com")!) {
@@ -281,12 +295,19 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
 
     /// POSTs JSON to a REST endpoint; GraphQL has no "publish one comment now" mutation.
     func restPost(_ path: String, _ json: [String: Any]) async throws {
+        _ = try await rest("POST", path, json)
+    }
+
+    /// Sends a REST request; statuses in `accepting` (besides 2xx) return their body instead of throwing.
+    func rest(_ method: String, _ path: String, _ json: [String: Any]? = nil, accepting: Set<Int> = []) async throws -> Data {
         var r = try await request(apiBase.appendingPathComponent(path), accept: "application/vnd.github+json")
-        r.httpMethod = "POST"
-        r.httpBody = try JSONSerialization.data(withJSONObject: json)
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpMethod = method
+        if let json {
+            r.httpBody = try JSONSerialization.data(withJSONObject: json)
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         let (data, http) = try await transport.send(r)
-        guard (200..<300).contains(http.statusCode) else {
+        guard (200..<300).contains(http.statusCode) || accepting.contains(http.statusCode) else {
             if http.statusCode == 401 { (tokens as? GHTokenProvider)?.invalidate(); throw GitHubError.notAuthenticated }
             if http.statusCode == 404 { throw GitHubError.notFound }
             struct Msg: Decodable { var message: String; var errors: [Detail]?; struct Detail: Decodable { var message: String? } }
@@ -295,6 +316,7 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
             }
             throw GitHubError.http(http.statusCode, String(decoding: data.prefix(500), as: UTF8.self))
         }
+        return data
     }
 
     public func addSingleComment(ref: PRRef, commitId: String, anchor: CodeAnchor, body: String) async throws {
@@ -321,8 +343,46 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
         let _: EmptyData = try await graphql(Queries.submitReview, ["review": reviewId, "event": event.rawValue, "body": body])
     }
 
-    public func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
-        let _: EmptyData = try await graphql(Queries.mergePullRequest, ["id": id, "method": method.rawValue, "head": expectedHeadOid])
+    public func mergePullRequest(ref: PRRef, id: String, method: MergeMethod, expectedHeadOid: String,
+                                 bypassRules: Bool) async throws -> MergeResult {
+        do {
+            let _: EmptyData = try await graphql(Queries.mergePullRequest, ["id": id, "method": method.rawValue, "head": expectedHeadOid])
+            return .merged
+        } catch GitHubError.graphQL(let errs) where errs.contains(where: Self.needsAsyncMerge) {
+            return try await mergeAsync(ref: ref, method: method, expectedHeadOid: expectedHeadOid, bypassRules: bypassRules)
+        }
+    }
+
+    /// "This pull request is part of a stack and must be merged using the asynchronous merge REST API."
+    static func needsAsyncMerge(_ message: String) -> Bool {
+        message.localizedCaseInsensitiveContains("asynchronous merge") || message.contains("merge-a-pull-request-asynchronously")
+    }
+
+    private struct AsyncMerge: Decodable {
+        struct Details: Decodable { var message: String?; var uuid: String? }
+        var status: String?
+        var details: Details?
+        var uuid: String?  // 409: the request already pending for this PR
+    }
+
+    /// `PUT …/merge-async`, then polls the request until it's no longer pending (about a minute at most).
+    func mergeAsync(ref: PRRef, method: MergeMethod, expectedHeadOid: String, bypassRules: Bool) async throws -> MergeResult {
+        let base = "repos/\(ref.owner)/\(ref.repo)/pulls/\(ref.number)/merge-async"
+        let body: [String: Any] = ["sha": expectedHeadOid, "merge_method": method.rawValue.lowercased(),
+                                   "bypass_rules": bypassRules]
+        var r = try Self.decoder.decode(AsyncMerge.self, from: try await rest("PUT", base, body, accepting: [409]))
+        for _ in 0..<60 {
+            switch r.status {
+            case "merged": return .merged
+            case "enqueued": return .enqueued
+            case "failed": throw GitHubError.graphQL([r.details?.message ?? "GitHub couldn't merge this pull request."])
+            default: break
+            }
+            guard let uuid = r.details?.uuid ?? r.uuid else { return .pending }
+            try await Task.sleep(for: asyncMergePollInterval)
+            r = try Self.decoder.decode(AsyncMerge.self, from: try await rest("GET", "\(base)/\(uuid)"))
+        }
+        return .pending
     }
 
     public func setPullRequestClosed(id: String, closed: Bool) async throws {

@@ -157,9 +157,11 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
             detail.conversation = conv
         }
     }
-    public func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
+    public func mergePullRequest(ref: PRRef, id: String, method: MergeMethod, expectedHeadOid: String,
+                                 bypassRules: Bool) async throws -> MergeResult {
         record("merge:\(method.rawValue)")
         lock.withLock { detail.state = "MERGED" }
+        return .merged
     }
     public func setPullRequestClosed(id: String, closed: Bool) async throws {
         record(closed ? "close" : "reopen")

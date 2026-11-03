@@ -189,8 +189,9 @@ final class FlakyGitHub: GitHubAPI, @unchecked Sendable {
     func submitReview(reviewId: String, event: ReviewEvent, body: String) async throws {
         try await base.submitReview(reviewId: reviewId, event: event, body: body)
     }
-    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String) async throws {
-        try await base.mergePullRequest(id: id, method: method, expectedHeadOid: expectedHeadOid)
+    func mergePullRequest(ref: PRRef, id: String, method: MergeMethod, expectedHeadOid: String,
+                          bypassRules: Bool) async throws -> MergeResult {
+        try await base.mergePullRequest(ref: ref, id: id, method: method, expectedHeadOid: expectedHeadOid, bypassRules: bypassRules)
     }
     func setPullRequestClosed(id: String, closed: Bool) async throws {
         try await base.setPullRequestClosed(id: id, closed: closed)

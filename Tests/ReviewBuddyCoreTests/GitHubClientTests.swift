@@ -176,14 +176,54 @@ func makeClient(_ handler: @escaping @Sendable (URLRequest, String, [String: Any
 
     @Test func mergePullRequestMutation() async throws {
         let (c, t) = makeClient { _, _, _ in (200, #"{"data":{"mergePullRequest":{"pullRequest":{"state":"MERGED"}}}}"#) }
-        try await c.mergePullRequest(id: "PR_1", method: .squash, expectedHeadOid: "abc")
+        #expect(try await c.mergePullRequest(ref: PRRef(owner: "o", repo: "r", number: 7), id: "PR_1", method: .squash,
+                                             expectedHeadOid: "abc", bypassRules: false) == .merged)
         #expect(t.sent[0].query.contains("mergePullRequest"))
         #expect(t.sent[0].variables["method"] as? String == "SQUASH")
         #expect(t.sent[0].variables["head"] as? String == "abc")
         let (c2, _) = makeClient { _, _, _ in
             (200, #"{"data":{"mergePullRequest":null},"errors":[{"type":"UNPROCESSABLE","message":"Head branch was modified. Review and try the merge again."}]}"#)
         }
-        await #expect(throws: (any Error).self) { try await c2.mergePullRequest(id: "PR_1", method: .merge, expectedHeadOid: "old") }
+        await #expect(throws: (any Error).self) { _ = try await c2.mergePullRequest(ref: PRRef(owner: "o", repo: "r", number: 7), id: "PR_1", method: .merge,
+                                              expectedHeadOid: "old", bypassRules: false) }
+    }
+
+    static let stackError = #"{"data":{"mergePullRequest":null},"errors":[{"type":"UNPROCESSABLE","message":"This pull request is part of a stack and must be merged using the asynchronous merge REST API. For more information, see https://docs.github.com/rest/pulls/pulls#merge-a-pull-request-asynchronously"}]}"#
+
+    @Test func stackedPRFallsBackToAsyncMergeAndPolls() async throws {
+        let (c, t) = makeClient { r, _, _ in
+            switch (r.httpMethod, r.url?.path) {
+            case ("PUT", _): (202, #"{"status":"pending","details":{"message":"Merging","uuid":"U1"}}"#)
+            case ("GET", "/repos/o/r/pulls/7/merge-async/U1"): (200, #"{"status":"merged","details":{"message":"Merged","sha":"m1"}}"#)
+            default: (200, Self.stackError)
+            }
+        }
+        c.asyncMergePollInterval = .zero
+        let ref = PRRef(owner: "o", repo: "r", number: 7)
+        #expect(try await c.mergePullRequest(ref: ref, id: "PR_1", method: .squash, expectedHeadOid: "abc", bypassRules: true) == .merged)
+        #expect(t.sent[1].request.url?.path == "/repos/o/r/pulls/7/merge-async")
+        let json = try JSONSerialization.jsonObject(with: t.sent[1].request.httpBody!) as! [String: Any]
+        #expect(json["sha"] as? String == "abc" && json["merge_method"] as? String == "squash" && json["bypass_rules"] as? Bool == true)
+        #expect(t.sent.count == 3)
+    }
+
+    @Test func asyncMergeReportsQueueAndFailure() async throws {
+        let ref = PRRef(owner: "o", repo: "r", number: 7)
+        let (c, _) = makeClient { r, _, _ in
+            r.httpMethod == "PUT" ? (200, #"{"status":"enqueued","details":{"message":"Queued"}}"#) : (200, Self.stackError)
+        }
+        #expect(try await c.mergePullRequest(ref: ref, id: "PR_1", method: .merge, expectedHeadOid: "abc", bypassRules: false) == .enqueued)
+        let (c2, _) = makeClient { r, _, _ in
+            switch r.httpMethod {
+            case "PUT": (409, #"{"uuid":"U9","status":"pending","details":{}}"#)
+            case "GET": (200, #"{"status":"failed","details":{"message":"Head branch was modified"}}"#)
+            default: (200, Self.stackError)
+            }
+        }
+        c2.asyncMergePollInterval = .zero
+        await #expect(throws: GitHubError.graphQL(["Head branch was modified"])) {
+            _ = try await c2.mergePullRequest(ref: ref, id: "PR_1", method: .merge, expectedHeadOid: "abc", bypassRules: false)
+        }
     }
 
     @Test func singleCommentAndReplyUseRESTRightAway() async throws {
