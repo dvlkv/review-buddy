@@ -118,7 +118,7 @@ public enum UIScript {
                     let t = DiscussThread(ref: store.ref, anchor: anchor, commitSHA: detail.headOid, anchorTextHash: 0, messages: [
                         .init(role: .user, text: "Why return `null` here instead of throwing? Callers seem to expect a `User`."),
                         .init(role: .tool, text: "", toolName: "Grep", toolInput: "fetchUser\\(", toolResult: "3 matches in 3 files"),
-                        .init(role: .assistant, text: "All three call sites (`ProfileView`, `Sidebar`, `SearchResults`) already check for `null`, so the change is safe for a missing user.\n\nThe catch: `!res.ok` also covers 500s and timeouts, which now look like \"user not found\". I'd return `null` only for `404` and throw otherwise.\n\nWant me to make that change and commit it to the PR branch?"),
+                        .init(role: .assistant, text: parts[safe: 1] == "table" ? demoTableReply : "All three call sites (`ProfileView`, `Sidebar`, `SearchResults`) already check for `null`, so the change is safe for a missing user.\n\nThe catch: `!res.ok` also covers 500s and timeouts, which now look like \"user not found\". I'd return `null` only for `404` and throw otherwise.\n\nWant me to make that change and commit it to the PR branch?"),
                     ])
                     store.updateDiscussThread(t)
                     store.activeDiscussId = t.id
@@ -287,6 +287,26 @@ public enum UIScript {
             try? (items + "\n" + dump(cv, 0)).write(to: dir.appendingPathComponent("tree.txt"), atomically: true, encoding: .utf8)
         }
     }
+
+    /// `demodiscuss:table`: a reply with block Markdown (tables, lists, code).
+    static let demoTableReply = """
+    `fetchUser` has three callers:
+
+    | Caller | File | Handles `null`? |
+    |---|---|:---:|
+    | ProfileView | `src/views/ProfileView.tsx:42` | yes |
+    | Sidebar | `src/components/Sidebar.tsx:17` | yes |
+    | SearchResults | `src/search/SearchResults.tsx:88` | **no**, renders "Unknown user" |
+
+    1. Return `null` only for `404`.
+       - throw for 5xx and timeouts
+    2. Add a test for the timeout path.
+
+    ```ts
+    if (res.status === 404) return null
+    if (!res.ok) throw new HttpError(res.status)
+    ```
+    """
 
     public static func snapshot(name: String, dir: URL) {
         guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 400 }),
