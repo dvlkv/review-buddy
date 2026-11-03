@@ -181,10 +181,16 @@ public final class PRStore {
 
     // MARK: - Loading
 
+    /// Loads (or reloads) the PR. Overlapping calls are fine: only the latest one applies
+    /// its results, so a slow earlier response can't overwrite a newer diff.
     public func load() async {
+        loadGeneration += 1
+        let generation = loadGeneration
+        var superseded: Bool { generation != loadGeneration }
         loadState = .loading("Loading pull request…")
         let start = ContinuousClock.now
         let local = await services.store.load(ref)
+        if superseded { return }
         apply(local: local)
         customReviewOrder = local.reviewOrder
         do {
@@ -193,24 +199,39 @@ public final class PRStore {
                 do { return try await services.github.diff(ref) } catch GitHubError.diffTooLarge { return nil }
             }()
             let detail = try await detailTask
+            if superseded { return }
             self.detail = detail
             self.remoteHeadOid = nil
             self.pendingReviewId = detail.pendingReviewId
             self.threads = Dictionary(uniqueKeysWithValues: detail.threads.map { ($0.id, $0) })
             self.viewed = Set(detail.files.filter { $0.viewed == .viewed }.map(\.path))
             var data = try await diffTask
+            if superseded { return }
             diffSource = "GitHub API"
             if data == nil {
                 loadState = .loading("Large diff — preparing local checkout…")
+                let existing = worktreeState.worktree
                 let wt = try await ensureWorktree()
-                data = try await services.worktrees?.diff(repoDir: wt.repoDir, base: "refs/review-buddy/base-\(ref.number)",
-                                                          head: wt.remoteHeadRef)
+                // A checkout made earlier has the head it was made with; get the current one.
+                if existing != nil { try await services.worktrees?.fetchPR(repoDir: wt.repoDir, pr: detail) }
+                // Pinned to the head `detail` describes; the branch tip may have moved on since.
+                let base = "refs/review-buddy/base-\(ref.number)"
+                do {
+                    data = try await services.worktrees?.diff(repoDir: wt.repoDir, base: base, head: detail.headOid)
+                } catch {
+                    data = try await services.worktrees?.diff(repoDir: wt.repoDir, base: base, head: wt.remoteHeadRef)
+                }
                 diffSource = "local git"
             }
-            let bytes = data ?? Data()
-            let parsed = await Task.detached(priority: .userInitiated) {
-                Perf.shared.measure("diff.parse") { UnifiedDiffParser.parse(data: bytes) }
-            }.value
+            var parsed = await Self.parse(data ?? Data())
+            if superseded { return }
+            // Right after a push GitHub's diff endpoint can still serve the previous head
+            // while GraphQL already has the new one. Their file lists then disagree: retry once.
+            if diffSource == "GitHub API", !Self.diff(parsed, matches: detail) {
+                try? await Task.sleep(for: staleDiffRetryDelay)
+                if let again = try? await services.github.diff(ref) { parsed = await Self.parse(again) }
+                if superseded { return }
+            }
             install(diff: parsed)
             applyFileOrder()
             Perf.shared.record("pr.load.total", ms: (ContinuousClock.now - start).milliseconds)
@@ -219,8 +240,24 @@ public final class PRStore {
             await cleanUpWorktreeIfClosed()
             autoRunAI()
         } catch {
-            loadState = .failed(error.localizedDescription)
+            if !superseded { loadState = .failed(error.localizedDescription) }
         }
+    }
+
+    /// Wait before re-asking GitHub for a diff that doesn't match the PR's files (tests set it to zero).
+    @ObservationIgnored var staleDiffRetryDelay: Duration = .milliseconds(1500)
+    @ObservationIgnored private var loadGeneration = 0
+
+    static func parse(_ bytes: Data) async -> DiffSet {
+        await Task.detached(priority: .userInitiated) {
+            Perf.shared.measure("diff.parse") { UnifiedDiffParser.parse(data: bytes) }
+        }.value
+    }
+
+    /// Whether the diff covers the files GitHub lists for the PR (unknown lists match).
+    static func diff(_ diff: DiffSet, matches detail: PRDetail) -> Bool {
+        guard !detail.files.isEmpty, detail.files.count == detail.changedFiles else { return true }
+        return Set(diff.files.map(\.path)) == Set(detail.files.map(\.path))
     }
 
     /// Installs a diff directly (fixtures, synthetic perf mode, tests).
@@ -232,7 +269,17 @@ public final class PRStore {
             self.pendingReviewId = detail.pendingReviewId
         }
         self.diff = diff
+        // Everything keyed by file/hunk index or holding file text belongs to the old diff.
+        // The old layout's split pairs too: rebuildLayout would otherwise reuse them when
+        // the new diff happens to have as many files, drawing old line indices.
+        layout = nil
         splitPairs = nil
+        fileContentCache.removeAll()
+        fileContentLoads.removeAll()
+        options.expandedAbove.removeAll()
+        options.expandedBelow.removeAll()
+        options.forceLoaded.removeAll()
+        selection = nil
         highlights.cache = HighlightCache(diff: diff)
         Task { [weak self] in
             let pairs = await Task.detached(priority: .utility) { diff.files.map { SplitAligner.align(file: $0) } }.value
@@ -259,9 +306,17 @@ public final class PRStore {
 
     /// Reloads the PR from GitHub and brings the local checkout up to date with it.
     public func refresh() async {
-        let scrollRow = view?.topVisibleRow
+        // Rows are renumbered by the new diff: come back to the same file, same distance in.
+        var anchor: (path: String, offset: Int)?
+        if let top = view?.topVisibleRow, let layout, top < layout.rowCount {
+            let f = layout.fileIndex(forRow: top)
+            if let path = files[safe: f]?.path { anchor = (path, top - layout.fileStartRow[f]) }
+        }
         await load()
-        if let scrollRow, let layout, scrollRow < layout.rowCount { view?.scrollToRow(scrollRow, select: false) }
+        if let anchor, let layout, let f = diff?.fileIndex(path: anchor.path) {
+            let range = layout.rowRange(forFile: f)
+            view?.scrollToRow(min(range.lowerBound + anchor.offset, range.upperBound - 1), select: false)
+        }
         await refreshGitState(updateCheckout: true)
     }
 
@@ -392,20 +447,33 @@ public final class PRStore {
 
     // MARK: - Expand context
 
+    /// Lines between hunk `hunk` and whatever is shown above it that are still hidden.
+    func hiddenAbove(file: Int, hunk: Int) -> Int {
+        guard file < files.count, hunk >= 0, hunk < files[file].hunks.count else { return 0 }
+        let f = files[file]
+        let prevEnd = hunk > 0 ? f.hunks[hunk - 1].newEnd : 1
+        let expanded = options.expandedAbove[DiffLayoutOptions.key(file: file, hunk: hunk)] ?? 0
+        return max(0, f.hunks[hunk].newFirst - expanded - prevEnd)
+    }
+
     public func expandAbove(file: Int, hunk: Int, by n: Int = 20) {
+        guard let d = diff, hiddenAbove(file: file, hunk: hunk) > 0 else { return }
         Task {
-            guard await ensureFileContent(file: file) else { return }
-            let key = DiffLayoutOptions.key(file: file, hunk: hunk)
-            options.expandedAbove[key, default: 0] += n
+            guard await ensureFileContent(file: file), self.diff === d else { return }
+            // Re-check after the await: a second click may have closed the gap already.
+            let more = min(n, hiddenAbove(file: file, hunk: hunk))
+            guard more > 0 else { return }
+            options.expandedAbove[DiffLayoutOptions.key(file: file, hunk: hunk), default: 0] += more
             rebuildLayout()
         }
     }
 
     public func expandBelow(file: Int, by n: Int = 20) {
+        guard let d = diff, canExpandBelow(file: file) else { return }
         Task {
-            guard await ensureFileContent(file: file), let lines = fileContentCache[files[file].path],
-                  let last = files[file].hunks.last else { return }
-            let shownEnd = last.newStart + last.newCount - 1 + options.expandedBelow[file, default: 0]
+            guard await ensureFileContent(file: file), self.diff === d,
+                  let lines = fileContentCache[files[file].path], let last = files[file].hunks.last else { return }
+            let shownEnd = last.newEnd - 1 + options.expandedBelow[file, default: 0]
             let more = min(n, lines.count - shownEnd)
             guard more > 0 else { return }
             options.expandedBelow[file, default: 0] += more
@@ -414,45 +482,63 @@ public final class PRStore {
     }
 
     /// Whether there are hidden lines above hunk `h` (shows the expand arrow).
-    public func canExpandAbove(file: Int, hunk: Int) -> Bool {
-        guard file < files.count, hunk < files[file].hunks.count else { return false }
-        let f = files[file]
-        let h = f.hunks[hunk]
-        let prevEnd = hunk > 0 ? f.hunks[hunk - 1].newStart + f.hunks[hunk - 1].newCount : 1
-        let expanded = options.expandedAbove[DiffLayoutOptions.key(file: file, hunk: hunk)] ?? 0
-        return h.newStart - expanded > prevEnd
-    }
+    public func canExpandAbove(file: Int, hunk: Int) -> Bool { hiddenAbove(file: file, hunk: hunk) > 0 }
 
     public func canExpandBelow(file: Int) -> Bool {
         guard file < files.count, let last = files[file].hunks.last, files[file].status != .deleted else { return false }
         if let lines = fileContentCache[files[file].path] {
-            return last.newStart + last.newCount - 1 + (options.expandedBelow[file] ?? 0) < lines.count
+            return last.newEnd - 1 + (options.expandedBelow[file] ?? 0) < lines.count
         }
         return true
     }
 
     @ObservationIgnored var expandedLinesProvider: ((Int, [String]) -> Void)?
+    /// In-flight loads, so rapid clicks fetch a file once.
+    @ObservationIgnored private var fileContentLoads: [String: Task<[String]?, Never>] = [:]
+
+    /// Splits file text into lines the way the diff numbers them: a final newline ends the
+    /// last line rather than starting an empty one.
+    /// Splits on bytes: as Characters, "\r\n" is one grapheme that a "\n" split never matches.
+    static func splitLines(_ data: Data) -> [String] {
+        var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false).map { bytes in
+            String(decoding: bytes.last == UInt8(ascii: "\r") ? bytes.dropLast() : bytes, as: UTF8.self)
+        }
+        if lines.last == "" { lines.removeLast() }
+        return lines
+    }
 
     func ensureFileContent(file: Int) async -> Bool {
+        guard file < files.count, let detail, let d = diff else { return false }
         let f = files[file]
         if fileContentCache[f.path] != nil { return true }
-        guard let detail else { return false }
-        do {
-            let data: Data
-            if let wt = worktreeState.worktree, let w = services.worktrees {
-                data = try await w.fileContents(repoDir: wt.repoDir, sha: detail.headOid, path: f.newPath)
-            } else {
-                let owner = detail.headRepoNameWithOwner?.split(separator: "/").map(String.init) ?? [ref.owner, ref.repo]
-                data = try await services.github.fileContents(owner: owner[0], repo: owner[1], path: f.newPath, ref: detail.headOid)
+        let key = "\(detail.headOid):\(f.path)"
+        let task = fileContentLoads[key] ?? Task { [services, ref, worktreeState] in
+            if let wt = worktreeState.worktree, let w = services.worktrees,
+               let data = try? await w.fileContents(repoDir: wt.repoDir, sha: detail.headOid, path: f.newPath) {
+                return Self.splitLines(data)
             }
-            let lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            fileContentCache[f.path] = lines
-            expandedLinesProvider?(file, lines)
-            return true
-        } catch {
-            banner = "Couldn't load \(f.path): \(error.localizedDescription)"
-            return false
+            // No checkout, or it doesn't have this commit yet (pushed since the last fetch).
+            let owner = detail.headRepoNameWithOwner?.split(separator: "/").map(String.init) ?? [ref.owner, ref.repo]
+            do {
+                return Self.splitLines(try await services.github.fileContents(owner: owner[0], repo: owner[1], path: f.newPath,
+                                                                              ref: detail.headOid))
+            } catch {
+                self.banner = "Couldn't load \(f.path): \(error.localizedDescription)"
+                return nil
+            }
         }
+        fileContentLoads[key] = task
+        let lines = await task.value
+        fileContentLoads[key] = nil
+        // The PR was reloaded meanwhile: this content may belong to an older head.
+        guard let lines, diff === d, self.detail?.headOid == detail.headOid else { return false }
+        fileContentCache[f.path] = lines
+        if let i = d.fileIndex(path: f.path) {
+            expandedLinesProvider?(i, lines)
+            // Knowing the length can hide the file's ⤓ arrow, which isn't part of the layout.
+            view?.reloadFile(i)
+        }
+        return true
     }
 
     // MARK: - Selection

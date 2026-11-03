@@ -16,6 +16,8 @@ final class FakeWorktrees: WorktreeProviding, @unchecked Sendable {
     /// Unified diff returned by diff(from:to:path:).
     var pathDiff: String = ""
     var fileContentsText = (1...300).map { "content line \($0)" }.joined(separator: "\n")
+    /// `git show` fails, e.g. the commit isn't fetched yet.
+    var fileContentsError: Error?
 
     init() {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("rb-wt-\(UUID().uuidString)")
@@ -52,13 +54,21 @@ final class FakeWorktrees: WorktreeProviding, @unchecked Sendable {
         if let pushError { throw pushError }
         localCommitsValue = []
     }
-    func diff(repoDir: URL, base: String, head: String) async throws -> Data { record("diff"); return Data() }
+    /// Heads `git diff` can't resolve (a commit not fetched).
+    var unknownHeads: Set<String> = []
+    func diff(repoDir: URL, base: String, head: String) async throws -> Data {
+        record("diff")
+        record("diff:\(head)")
+        if unknownHeads.contains(head) { throw TestError(message: "bad revision") }
+        return Data()
+    }
     func diff(repoDir: URL, from: String, to: String, path: String) async throws -> Data {
         record("diffPath:\(path)")
         return Data(pathDiff.utf8)
     }
     func fileContents(repoDir: URL, sha: String, path: String) async throws -> Data {
         record("fileContents:\(path)")
+        if let fileContentsError { throw fileContentsError }
         return Data(fileContentsText.utf8)
     }
     func headSHA(_ wt: Worktree) async throws -> String { record("headSHA"); return head }
@@ -156,6 +166,13 @@ final class FlakyGitHub: GitHubAPI, @unchecked Sendable {
     var failViewed = false
     var failSearch = false
     var failResolve = false
+    /// The REST diff is too large: the store falls back to a local checkout.
+    var diffTooLarge = false
+    /// Replaces file contents; may suspend (to hold a load in flight).
+    var contents: ((String, String) async throws -> Data)?
+    private let lock = NSLock()
+    private var _contentCalls = 0
+    var contentCalls: Int { lock.withLock { _contentCalls } }
     init(base: DemoGitHub) { self.base = base }
 
     func search(_ query: String) async throws -> [PRSummary] {
@@ -163,10 +180,23 @@ final class FlakyGitHub: GitHubAPI, @unchecked Sendable {
         return try await base.search(query)
     }
     func pullRequest(_ ref: PRRef) async throws -> PRDetail { try await base.pullRequest(ref) }
-    func diff(_ ref: PRRef) async throws -> Data { try await base.diff(ref) }
+    /// Served (in order) before the real diff, e.g. a stale one right after a push.
+    var queuedDiffs: [Data] = []
+    /// Runs before each diff request with its 0-based number; may suspend to reorder responses.
+    var beforeDiff: ((Int) async -> Void)?
+    private var diffCalls = 0
+    func diff(_ ref: PRRef) async throws -> Data {
+        let n = lock.withLock { defer { diffCalls += 1 }; return diffCalls }
+        await beforeDiff?(n)
+        if diffTooLarge { throw GitHubError.diffTooLarge }
+        if let d = lock.withLock({ queuedDiffs.isEmpty ? nil : queuedDiffs.removeFirst() }) { return d }
+        return try await base.diff(ref)
+    }
     func headOid(_ ref: PRRef) async throws -> String { try await base.headOid(ref) }
     func fileContents(owner: String, repo: String, path: String, ref: String) async throws -> Data {
-        try await base.fileContents(owner: owner, repo: repo, path: path, ref: ref)
+        lock.withLock { _contentCalls += 1 }
+        if let contents { return try await contents(path, ref) }
+        return try await base.fileContents(owner: owner, repo: repo, path: path, ref: ref)
     }
     func startReview(pullRequestId: String) async throws -> String { try await base.startReview(pullRequestId: pullRequestId) }
     func addThread(pullRequestId: String, reviewId: String, anchor: CodeAnchor, body: String) async throws -> ReviewThread {

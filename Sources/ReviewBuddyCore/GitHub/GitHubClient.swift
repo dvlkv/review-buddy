@@ -103,8 +103,8 @@ public protocol GitHubAPI: Sendable {
     /// A PR (issue) comment, outside any review.
     func addComment(subjectId: String, body: String) async throws -> PRConversation.Comment
     /// Merges the PR; fails if the head moved past `expectedHeadOid` since it was loaded.
-    /// Merges the PR. `ref` and `bypassRules` are used by the asynchronous REST merge, which
-    /// GitHub requires for stacked PRs.
+    /// `ref` and `bypassRules` are used by the asynchronous REST merge, which GitHub
+    /// requires for stacked PRs.
     func mergePullRequest(ref: PRRef, id: String, method: MergeMethod, expectedHeadOid: String,
                           bypassRules: Bool) async throws -> MergeResult
     /// Closes (`closed: true`) or reopens the PR without merging.
@@ -155,6 +155,8 @@ public final class GitHubClient: GitHubAPI, @unchecked Sendable {
         r.setValue("ReviewBuddy", forHTTPHeaderField: "User-Agent")
         r.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         r.timeoutInterval = 60
+        // GitHub sends `Cache-Control: max-age=60`; a cached diff right after a push shows the old code.
+        r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
 

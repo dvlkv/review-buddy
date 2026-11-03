@@ -834,6 +834,9 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
         var blockId: String?
         var offset: CGFloat
         var row: Int
+        /// The anchor row itself, for rows without a line (hunk headers, footers, placeholders).
+        var kind: LayoutRow.Kind = .fileHeader
+        var a: Int32 = -1
     }
 
     private func captureScrollAnchor() -> ScrollAnchor? {
@@ -843,7 +846,8 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
         let row = row(atY: top + 1)
         guard row >= 0, row < layout.rowCount else { return nil }
         let r = layout.rows[row]
-        var a = ScrollAnchor(file: Int(r.file), side: .right, line: 0, blockId: nil, offset: top - offsets[row], row: row)
+        var a = ScrollAnchor(file: Int(r.file), side: .right, line: 0, blockId: nil, offset: top - offsets[row], row: row,
+                             kind: r.kind, a: r.a)
         let lines = sideLines(for: r)
         if let u = lines.unified, let li = u.lineIndex, let diff = store?.diff {
             let dl = diff.files[Int(r.file)].lines[li]
@@ -864,6 +868,9 @@ public final class DiffTableCoordinator: NSObject, DiffViewDriving {
         var row: Int?
         if let b = a.blockId { row = rowsForBlockId[b] }
         if row == nil, a.line > 0 { row = layout.row(file: a.file, side: a.side, line: a.line) }
+        if row == nil, a.line == 0, a.blockId == nil, a.kind != .fileHeader, a.file < layout.fileStartRow.count {
+            row = layout.rowRange(forFile: a.file).first { layout.rows[$0].kind == a.kind && layout.rows[$0].a == a.a }
+        }
         if row == nil, a.file < layout.fileStartRow.count { row = layout.fileStartRow[a.file] }
         guard let r = row ?? (a.row < layout.rowCount ? a.row : nil) else { return }
         scrollTo(y: offsets[r] + a.offset)

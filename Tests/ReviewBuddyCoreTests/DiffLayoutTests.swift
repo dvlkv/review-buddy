@@ -103,6 +103,103 @@ import Testing
         #expect(expanded.last!.a == 29)
     }
 
+    /// Regression: the header used to come *after* lines expanded above it, so each click
+    /// pushed the ⤒ arrow 20 rows down and the next click landed on code.
+    @Test func hunkHeaderStaysAboveExpandedContext() {
+        let key = DiffLayoutOptions.key(file: 0, hunk: 1)
+        var headerRows: [Int] = []
+        var hidden: [Int32] = []
+        for n in [0, 5, 10, 17, 100] {
+            let l = DiffLayout(diff: Self.diff, options: DiffLayoutOptions(expandedAbove: [key: n]))
+            let h = l.rows.firstIndex { $0.kind == .hunkHeader && $0.file == 0 && $0.a == 1 }!
+            headerRows.append(h)
+            hidden.append(l.rows[h].b)
+            // Expanded lines follow the header, contiguous and ending right before the hunk.
+            let exp = l.rows[(h + 1)...].prefix { $0.kind == .expanded }.map { Int($0.a) }
+            #expect(exp == Array(max(13, 30 - n)..<30))
+        }
+        #expect(Set(headerRows).count == 1)
+        // 13..<30 is hidden at first: 17 lines.
+        #expect(hidden == [17, 12, 7, 0, 0])
+    }
+
+    @Test func expandingTheFirstHunkReachesLineOne() {
+        let key = DiffLayoutOptions.key(file: 0, hunk: 0)
+        let l = DiffLayout(diff: Self.diff, options: DiffLayoutOptions(expandedAbove: [key: 9]))
+        #expect(l.rows[1].kind == .hunkHeader && l.rows[1].b == 0)
+        #expect(l.rows[2...10].map(\.a) == Array(1...9).map(Int32.init))
+        #expect(l.rows[2...10].allSatisfy { $0.kind == .expanded })
+        let partial = DiffLayout(diff: Self.diff, options: DiffLayoutOptions(expandedAbove: [key: 4]))
+        #expect(partial.rows[1].b == 5)
+        // Old numbers follow the hunk's offset (0 here).
+        #expect(partial.rows[2].a == 6 && partial.rows[2].b == 6)
+    }
+
+    @Test func expandedRowsAreFoundByLine() {
+        let opts = DiffLayoutOptions(expandedAbove: [DiffLayoutOptions.key(file: 0, hunk: 1): 3], expandedBelow: [0: 2])
+        let l = DiffLayout(diff: Self.diff, options: opts)
+        for line in [27, 28, 29, 33, 34] {
+            let r = l.row(file: 0, side: .right, line: line)
+            #expect(r != nil && l.rows[r!].kind == .expanded)
+        }
+        #expect(l.row(file: 0, side: .right, line: 26) == nil)
+    }
+
+    @Test func splitModeExpandsTheSameWay() {
+        var opts = DiffLayoutOptions(expandedAbove: [DiffLayoutOptions.key(file: 0, hunk: 1): 5])
+        opts.mode = .split
+        let l = DiffLayout(diff: Self.diff, options: opts)
+        let h = l.rows.firstIndex { $0.kind == .hunkHeader && $0.a == 1 }!
+        #expect(l.rows[(h + 1)...(h + 5)].map(\.a) == [25, 26, 27, 28, 29])
+        #expect(l.rows[h + 6].kind == .pair)
+    }
+
+    @Test func footerRowChangesWhenExpandedBelow() {
+        var o = DiffLayoutOptions()
+        o.showExpandFooter = true
+        let before = DiffLayout(diff: Self.diff, options: o).rows.first { $0.kind == .expandFooter }!
+        o.expandedBelow = [0: 20]
+        let after = DiffLayout(diff: Self.diff, options: o).rows.first { $0.kind == .expandFooter }!
+        #expect(before != after && after.b == 20)
+    }
+
+    @Test func hunkBoundsWithEmptySides() {
+        // "+4,0": nothing added; the hunk sits after new line 4.
+        let del = Hunk(oldStart: 5, oldCount: 3, newStart: 4, newCount: 0, heading: "", lineRange: 0..<3)
+        #expect(del.newFirst == 5 && del.newEnd == 5 && del.oldFirst == 5 && del.oldEnd == 8)
+        let add = Hunk(oldStart: 4, oldCount: 0, newStart: 5, newCount: 2, heading: "", lineRange: 0..<2)
+        #expect(add.oldFirst == 5 && add.oldEnd == 5 && add.newFirst == 5 && add.newEnd == 7)
+        let wholeFileDeleted = Hunk(oldStart: 1, oldCount: 3, newStart: 0, newCount: 0, heading: "", lineRange: 0..<3)
+        #expect(wholeFileDeleted.newFirst == 1)
+    }
+
+    @Test func zeroContextDiffExpandsWithoutGapsOrOverlap() {
+        // -U0 style: a pure deletion then a pure addition.
+        let d = UnifiedDiffParser.parse("""
+        diff --git a/z.swift b/z.swift
+        --- a/z.swift
+        +++ b/z.swift
+        @@ -5,2 +4,0 @@
+        -gone1
+        -gone2
+        @@ -20,0 +19,2 @@
+        +new1
+        +new2
+
+        """)
+        let opts = DiffLayoutOptions(expandedAbove: [DiffLayoutOptions.key(file: 0, hunk: 0): 100,
+                                                     DiffLayoutOptions.key(file: 0, hunk: 1): 100])
+        let l = DiffLayout(diff: d, options: opts)
+        let shown = l.rows.filter { $0.kind == .expanded }.map { Int($0.a) }
+        // New lines 1-4 sit above the deletion; 5-18 between the hunks; 19-20 are added.
+        #expect(shown == Array(1...18))
+        // Old numbering: before the deletion old == new; after it, old = new + 2.
+        let rows = l.rows.filter { $0.kind == .expanded }
+        #expect(rows.first { $0.a == 4 }!.b == 4)
+        #expect(rows.first { $0.a == 5 }!.b == 7)
+        #expect(l.rows.filter { $0.kind == .hunkHeader }.map(\.b) == [0, 0])
+    }
+
     @Test func expandFooterOptional() {
         var o = DiffLayoutOptions()
         #expect(!DiffLayout(diff: Self.diff, options: o).rows.contains { $0.kind == .expandFooter })

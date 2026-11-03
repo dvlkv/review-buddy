@@ -60,6 +60,14 @@ public struct Hunk: Sendable, Equatable {
         self.lineRange = lineRange
     }
 
+    /// First new-file line the hunk covers. A hunk with no new lines (`+4,0`) sits *after*
+    /// line `newStart`, so the lines before it run through `newStart` itself.
+    public var newFirst: Int { newCount == 0 ? newStart + 1 : newStart }
+    /// First new-file line after the hunk.
+    public var newEnd: Int { newFirst + newCount }
+    public var oldFirst: Int { oldCount == 0 ? oldStart + 1 : oldStart }
+    public var oldEnd: Int { oldFirst + oldCount }
+
     public var headerText: String {
         var s = "@@ -\(oldStart),\(oldCount) +\(newStart),\(newCount) @@"
         if !heading.isEmpty { s += " " + heading }

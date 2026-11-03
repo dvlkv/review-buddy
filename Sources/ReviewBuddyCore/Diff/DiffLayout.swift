@@ -22,7 +22,9 @@ public struct LayoutRow: Sendable, Equatable {
     public enum Kind: UInt8, Sendable {
         /// File header. `a` unused.
         case fileHeader
-        /// `a` = hunk index.
+        /// `a` = hunk index, `b` = file lines still hidden above it (0 = none). The header
+        /// comes before any context expanded above the hunk, so its "expand" arrow stays
+        /// at the edge of what's still hidden.
         case hunkHeader
         /// Unified line. `a` = index into `FileDiff.lines`.
         case line
@@ -35,6 +37,7 @@ public struct LayoutRow: Sendable, Equatable {
         /// Placeholder for a collapsed large/generated/binary file. `a` = reason raw value.
         case placeholder
         /// "Expand below" affordance after the last hunk (only with `showExpandFooter`).
+        /// `b` = lines already expanded below, so the row changes (and is redrawn) on expand.
         case expandFooter
     }
     public var kind: Kind
@@ -216,13 +219,12 @@ public final class DiffLayout: @unchecked Sendable {
             file.lines.withUnsafeBufferPointer { lines in
                 for hi in file.hunks.indices {
                     let hunk = file.hunks[hi]
-                    if hasExpansions, let n = options.expandedAbove[DiffLayoutOptions.key(file: fi, hunk: hi)], n > 0 {
-                        let lo = max(prevNewEnd, hunk.newStart - n)
-                        if lo < hunk.newStart {
-                            Self.emitExpanded(lo..<hunk.newStart, oldOffset: hunk.newStart - hunk.oldStart, file: f32, blocks: fb, into: &rows)
-                        }
+                    let n = hasExpansions ? options.expandedAbove[DiffLayoutOptions.key(file: fi, hunk: hi)] ?? 0 : 0
+                    let lo = max(prevNewEnd, hunk.newFirst - max(0, n))
+                    rows.append(LayoutRow(kind: .hunkHeader, file: f32, a: Int32(hi), b: Int32(max(0, lo - prevNewEnd))))
+                    if lo < hunk.newFirst {
+                        Self.emitExpanded(lo..<hunk.newFirst, oldOffset: hunk.newFirst - hunk.oldFirst, file: f32, blocks: fb, into: &rows)
                     }
-                    rows.append(LayoutRow(kind: .hunkHeader, file: f32, a: Int32(hi)))
                     if split {
                         // Pairs for this hunk are contiguous in `pairs`.
                         while pairCursor < pairs.count {
@@ -249,15 +251,15 @@ public final class DiffLayout: @unchecked Sendable {
                     } else {
                         for i in hunk.lineRange { rows.append(LayoutRow(kind: .line, file: f32, a: Int32(i))) }
                     }
-                    prevNewEnd = hunk.newStart + hunk.newCount
+                    prevNewEnd = max(prevNewEnd, hunk.newEnd)
                 }
             }
-            if hasExpansions, let n = options.expandedBelow[fi], n > 0, let last = file.hunks.last {
-                let oldOffset = (last.newStart + last.newCount) - (last.oldStart + last.oldCount)
-                Self.emitExpanded(prevNewEnd..<(prevNewEnd + n), oldOffset: oldOffset, file: f32, blocks: fb, into: &rows)
+            let below = hasExpansions ? max(0, options.expandedBelow[fi] ?? 0) : 0
+            if below > 0, let last = file.hunks.last {
+                Self.emitExpanded(prevNewEnd..<(prevNewEnd + below), oldOffset: last.newEnd - last.oldEnd, file: f32, blocks: fb, into: &rows)
             }
             if options.showExpandFooter && !file.hunks.isEmpty && file.status != .deleted {
-                rows.append(LayoutRow(kind: .expandFooter, file: f32))
+                rows.append(LayoutRow(kind: .expandFooter, file: f32, b: Int32(below)))
             }
             // Blocks whose line is not visible (outdated threads, lines outside hunks)
             // go at the end of the file so nothing is silently hidden.

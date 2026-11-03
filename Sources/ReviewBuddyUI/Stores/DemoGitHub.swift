@@ -86,7 +86,13 @@ public final class DemoGitHub: GitHubAPI, @unchecked Sendable {
     public func diff(_ ref: PRRef) async throws -> Data { record("diff"); return diffData }
     public func headOid(_ ref: PRRef) async throws -> String { record("headOid"); return lock.withLock { detail.headOid } }
     /// Simulates a push to the PR (demo and tests).
-    public func simulatePush(headOid: String) { lock.withLock { detail.headOid = headOid } }
+    /// `diff` replaces the PR's diff, as a push that changes code would.
+    public func simulatePush(headOid: String, diff: Data? = nil) {
+        lock.withLock {
+            detail.headOid = headOid
+            if let diff { diffData = diff }
+        }
+    }
     public func fileContents(owner: String, repo: String, path: String, ref: String) async throws -> Data {
         record("fileContents")
         let lines = (1...400).map { "    // \(path) line \($0)" }
