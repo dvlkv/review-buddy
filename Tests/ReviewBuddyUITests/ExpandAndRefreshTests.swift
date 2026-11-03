@@ -151,6 +151,52 @@ private func expandFully(_ s: PRStore, file: Int, hunk: Int) async -> Int {
         #expect(expandedLines(s, file: 0).isEmpty)
     }
 
+    /// Regression: pushing fix commits left the diff on the old head until the app was reopened.
+    @Test func pushReloadsTheDiff() async {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        try! await s.ensureWorktree()
+        h.worktrees.localCommitsValue = [CommitInfo(sha: "c1", subject: "fix", author: "me", date: nil)]
+        await s.refreshGitState()
+        let newHead = String(repeating: "c", count: 40)
+        h.demo.simulatePush(headOid: newHead, diff: Data(SyntheticDiff.make(Self.newShape).utf8))
+        #expect(await s.push())
+        #expect(s.detail?.headOid == newHead)
+        #expect(s.files[0].hunks.count == 3)
+    }
+
+    /// A Discuss agent that ran `git push` itself: the turn's end reloads the PR.
+    @Test func discussTurnThatPushedReloadsTheDiff() async {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        let id = s.startDiscuss(CodeAnchor(path: s.files[0].path, side: .right, startLine: 13, endLine: 13))!
+        let c = s.controller(for: id)
+        await c.send("push it")
+        let newHead = String(repeating: "c", count: 40)
+        h.worktrees.head = newHead
+        h.demo.simulatePush(headOid: newHead, diff: Data(SyntheticDiff.make(Self.newShape).utf8))
+        h.sessions.sessions[0].reply("Pushed.")
+        #expect(await eventually { s.detail?.headOid == newHead })
+        #expect(s.files[0].hunks.count == 3)
+    }
+
+    /// Someone else pushed: don't reload under the user, just flag it as outdated.
+    @Test func discussTurnDoesNotReloadForOthersPushes() async {
+        let h = Harness()
+        await h.load()
+        let s = h.store
+        let id = s.startDiscuss(CodeAnchor(path: s.files[0].path, side: .right, startLine: 13, endLine: 13))!
+        let c = s.controller(for: id)
+        await c.send("hi")
+        let oldHead = s.detail?.headOid
+        h.demo.simulatePush(headOid: String(repeating: "d", count: 40))
+        h.sessions.sessions[0].reply("Hello.")
+        #expect(await eventually { s.isOutdated })
+        #expect(s.detail?.headOid == oldHead)
+    }
+
     @Test func contentArrivingAfterRefreshIsDropped() async {
         var flaky: FlakyGitHub!
         let h = Harness(github: { d in

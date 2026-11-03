@@ -335,6 +335,15 @@ public final class PRStore {
         if oid != remoteHeadOid { remoteHeadOid = oid }
     }
 
+    /// Reloads when GitHub's PR head is now the checkout's HEAD, i.e. it was pushed from
+    /// here (e.g. `git push` run by a Discuss agent) and the diff still shows the old head.
+    func refreshIfPushedFromCheckout() async {
+        guard let wt = worktreeState.worktree, let w = services.worktrees else { return }
+        await checkForUpdates(force: true)
+        guard isOutdated, let head = try? await w.headSHA(wt), head == remoteHeadOid else { return }
+        await refresh()
+    }
+
     private func recomputeThreadCounts() {
         var counts: [String: Int] = [:]
         for t in threads.values where !t.isResolved { counts[t.path, default: 0] += 1 }
@@ -1054,7 +1063,8 @@ public final class PRStore {
             try await w.push(wt, pr: detail)
             pushState = .idle
             banner = "Pushed \(localCommits.count) commit\(localCommits.count == 1 ? "" : "s") to \(detail.headRefName)"
-            await refreshGitState()
+            // The PR's head is now these commits: reload so the diff shows them.
+            await refresh()
             return true
         } catch {
             pushState = .failed(error.localizedDescription)

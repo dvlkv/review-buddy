@@ -152,7 +152,12 @@ public final class DiscussController {
             if case .result = ev {
                 session?.turnActive = false
                 save()
-                if fixBaseline != nil { Task { await finishFix() } }
+                if fixBaseline != nil {
+                    Task { await finishFix() }
+                } else {
+                    // The agent may have pushed (asked to, despite the prompt).
+                    Task { await pr.refreshIfPushedFromCheckout() }
+                }
             } else if case .assistant = ev {
                 save()
             }
