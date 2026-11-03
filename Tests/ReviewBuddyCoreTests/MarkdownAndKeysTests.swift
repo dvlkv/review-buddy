@@ -2,6 +2,10 @@ import Foundation
 import Testing
 @testable import ReviewBuddyCore
 
+func item(_ text: String, checked: Bool? = nil) -> MarkdownListItem {
+    MarkdownListItem(checked: checked, blocks: [.paragraph(text)])
+}
+
 @Suite struct MarkdownParserTests {
     @Test func mixedDocument() {
         let md = """
@@ -33,10 +37,10 @@ import Testing
             .paragraph("First line\nsecond line"),
             .code(language: "swift", text: "let x = 1"),
             .suggestion("let y = 2"),
-            .quote("quoted\nmore"),
-            .list(ordered: false, items: ["a", "b"]),
-            .list(ordered: true, items: ["one", "two"]),
-            .taskList([(done: false, text: "todo"), (done: true, text: "done")]),
+            .quote([.paragraph("quoted\nmore")]),
+            .list(MarkdownList(ordered: false, items: [item("a"), item("b")])),
+            .list(MarkdownList(ordered: true, items: [item("one"), item("two")])),
+            .list(MarkdownList(ordered: false, items: [item("todo", checked: false), item("done", checked: true)])),
             .rule,
             .heading(level: 3, text: "Small"),
         ])
@@ -49,7 +53,7 @@ import Testing
         #expect(MarkdownParser.parse("```\nunterminated\ncode") == [.code(language: nil, text: "unterminated\ncode")])
         #expect(MarkdownParser.parse("~~~\nx\n~~~") == [.code(language: nil, text: "x")])
         #expect(MarkdownParser.parse("```suggestion\n```") == [.suggestion("")])
-        #expect(MarkdownParser.parse("- [ ] a\n- b") == [.list(ordered: false, items: ["[ ] a", "b"])])
+        #expect(MarkdownParser.parse("- [ ] a\n- b") == [.list(MarkdownList(ordered: false, items: [item("a", checked: false), item("b")]))])
     }
 
     @Test func suggestionTemplateRoundTrips() {
