@@ -1684,12 +1684,15 @@ impl PRStore {
             then(self, Ok(wt));
             return;
         }
+        // Failures are delivered as a job, not synchronously: callers run inside
+        // `with_controller`, where a nested `with_controller` would find no controller.
         let Some(detail) = self.detail.clone() else {
-            then(self, Err(GitHubError::NotFound.to_string()));
+            let e = GitHubError::NotFound.to_string();
+            self.spawner.post(with_pr(&self.pr_ref, move |s| then(s, Err(e))));
             return;
         };
         if self.services.worktrees.is_none() {
-            then(self, Err("git was not found".into()));
+            self.spawner.post(with_pr(&self.pr_ref, move |s| then(s, Err("git was not found".into()))));
             return;
         }
         let env = self.env();
