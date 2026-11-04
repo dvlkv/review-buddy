@@ -18,29 +18,46 @@ pub enum BtnKind {
     Invisible,
 }
 
-/// GitHub-style button. Disabled buttons don't respond.
+/// A button in one of the app's styles (Zed's filled / tinted / ghost). Disabled buttons
+/// don't respond.
 pub fn gh_button(ui: &mut Ui, text: &str, kind: BtnKind, enabled: bool) -> Response {
-    let p = pal(ui);
-    let (fill, fg, stroke) = match kind {
-        BtnKind::Default => (p.subtle, p.text, p.border),
-        BtnKind::Primary => (if p.dark { Color32::from_rgb(0x23, 0x86, 0x36) } else { Color32::from_rgb(0x1F, 0x88, 0x3D) }, Color32::WHITE, Color32::TRANSPARENT),
-        BtnKind::Ai => (p.ai_accent, Color32::WHITE, Color32::TRANSPARENT),
-        BtnKind::Danger => (p.subtle, p.del_marker, p.border),
-        BtnKind::Invisible => (Color32::TRANSPARENT, p.accent, Color32::TRANSPARENT),
+    gh_button_ex(ui, text, &[], kind, enabled)
+}
+
+/// [`gh_button`] sized for the widest of `text` and `variants` (labels that change).
+pub fn gh_button_ex(ui: &mut Ui, text: &str, variants: &[&str], kind: BtnKind, enabled: bool) -> Response {
+    let look = btn_look(&pal(ui), kind);
+    super::icons::button_ex(ui, text, variants, FontId::proportional(13.0), look, 24.0, enabled)
+}
+
+/// [`gh_button_ex`] that shows a spinner instead of its label while `busy`.
+pub fn gh_button_busy(ui: &mut Ui, text: &str, variants: &[&str], kind: BtnKind, enabled: bool, busy: bool) -> Response {
+    let look = btn_look(&pal(ui), kind);
+    super::icons::button_full(ui, text, variants, FontId::proportional(13.0), look, 24.0, enabled, busy)
+}
+
+pub fn btn_look(p: &Palette, kind: BtnKind) -> super::icons::Look {
+    let (fill, stroke, fg) = match kind {
+        BtnKind::Default => (p.subtle, p.border, p.text),
+        BtnKind::Primary => p.tinted(p.accent),
+        BtnKind::Ai => p.tinted(p.ai_accent),
+        BtnKind::Danger => p.tinted(p.del_marker),
+        BtnKind::Invisible => (Color32::TRANSPARENT, Color32::TRANSPARENT, p.accent),
     };
-    let look = super::icons::Look { fill, fg, stroke, native: false, frame: kind != BtnKind::Invisible, radius: egui::CornerRadius::same(6) };
-    super::icons::button(ui, text, FontId::proportional(13.0), look, 26.0, enabled)
+    super::icons::Look { fill, fg, stroke, native: false, frame: true, radius: CornerRadius::same(p.radius) }
 }
 
 /// A rounded label like GitHub's "Pending" / "Outdated" badges.
 pub fn pill(ui: &mut Ui, text: &str, color: Color32, filled: bool) -> Response {
     let font = FontId::proportional(11.5);
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, if filled { Color32::WHITE } else { color });
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
     let size = galley.size() + Vec2::new(12.0, 4.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
-    let bg = if filled { color } else { color.gamma_multiply(0.15) };
-    ui.painter().rect(rect, CornerRadius::same(9), bg, Stroke::new(1.0, color.gamma_multiply(if filled { 0.0 } else { 0.5 })), egui::StrokeKind::Inside);
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
+    let p = pal(ui);
+    let bg = if filled { color } else { crate::theme::over(color, 0.14, p.canvas) };
+    let border = if filled { color } else { crate::theme::over(color, 0.4, p.canvas) };
+    ui.painter().rect(rect, CornerRadius::same(p.radius), bg, Stroke::new(1.0, border), egui::StrokeKind::Inside);
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, if filled { pal(ui).canvas } else { color });
     resp
 }
 

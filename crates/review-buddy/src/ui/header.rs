@@ -46,7 +46,7 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
             // Always here: shows/hides the summary, or generates one if there is none.
             let has_summary = store.summary.is_some() || store.summary_state.is_running();
             let shown = has_summary && !mem.summary_collapsed;
-            let r = gh_button(ui, if shown { "▴ Hide summary" } else { "✦ AI summary" }, BtnKind::Invisible, true)
+            let r = super::common::gh_button_ex(ui, if shown { "▴ Hide summary" } else { "✦ AI summary" }, &["▴ Hide summary", "✦ AI summary"], BtnKind::Invisible, true)
                 .on_hover_text(if has_summary { "Show or hide the AI summary" } else { "Generate an AI summary and reading order" });
             if r.clicked() {
                 if has_summary {
@@ -58,7 +58,7 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
             }
             if !d.body.is_empty() {
                 let t = if mem.show_description { "▴ Hide description" } else { "☰ Description" };
-                if gh_button(ui, t, BtnKind::Invisible, true).clicked() {
+                if super::common::gh_button_ex(ui, t, &["▴ Hide description", "☰ Description"], BtnKind::Invisible, true).clicked() {
                     mem.show_description = !mem.show_description;
                 }
             }
@@ -67,7 +67,7 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
     let max_h = (ui.available_height() * 0.45).max(160.0);
     let any_body = mem.show_description || (!mem.summary_collapsed && (store.summary.is_some() || store.summary_state != TaskState::Idle));
     if any_body {
-        egui::ScrollArea::vertical().id_salt("header_body").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
+        egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).id_salt("header_body").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
             if mem.show_description {
                 egui::Frame::new().stroke(Stroke::new(1.0, p.border)).corner_radius(6).inner_margin(12).show(ui, |ui| {
                     ui.set_width(ui.available_width());
@@ -154,7 +154,8 @@ fn summary_card(ui: &mut Ui, store: &mut PRStore, mem: &mut HeaderMem, p: &Palet
                 format!("{}…", s.summary.chars().take(240).collect::<String>())
             };
             inline(ui, &text, 13.0, p.text, false);
-            if s.summary.chars().count() > 240 && ui.link(if mem.summary_expanded { "Show less" } else { "Show more" }).clicked() {
+            let more = if mem.summary_expanded { "Show less" } else { "Show more" };
+            if s.summary.chars().count() > 240 && super::common::gh_button_ex(ui, more, &["Show less", "Show more"], BtnKind::Invisible, true).clicked() {
                 mem.summary_expanded = !mem.summary_expanded;
             }
             if !s.reading_order.is_empty() {

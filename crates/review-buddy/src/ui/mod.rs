@@ -8,6 +8,8 @@ pub mod discuss_panel;
 pub mod file_tree_view;
 pub mod header;
 pub mod icons;
+#[cfg(test)]
+mod layout_tests;
 pub mod markdown;
 pub mod overview;
 pub mod script;
@@ -108,20 +110,21 @@ impl ReviewBuddyApp {
     }
 }
 
-/// Spacing and widget tweaks, for both the light and the dark style.
+/// Zed-like visuals and spacing, for both the light and the dark style.
 fn install_style(ctx: &egui::Context) {
     ctx.all_styles_mut(|s| {
+        s.visuals = Palette::new(s.visuals.dark_mode).visuals();
         s.spacing.item_spacing = egui::vec2(6.0, 4.0);
         s.spacing.button_padding = egui::vec2(8.0, 3.0);
-        // egui insets a button's content by its stroke width. Hovered and pressed buttons
-        // have a 1 px stroke, idle ones none, so buttons with their own stroke (or none)
-        // shrank by 2 px on hover. An invisible 1 px idle stroke keeps the size constant.
-        let w = &mut s.visuals.widgets;
-        for v in [&mut w.inactive, &mut w.noninteractive] {
-            if v.bg_stroke.width < 1.0 {
-                v.bg_stroke = egui::Stroke::new(1.0, egui::Color32::TRANSPARENT);
-            }
-        }
+        s.spacing.menu_margin = egui::Margin::same(4);
+        s.spacing.window_margin = egui::Margin::same(12);
+        s.spacing.interact_size.y = 22.0;
+        // Thin scroll bars like Zed's, shown on hover. They get their own strip instead of
+        // overlaying content: a press on an overlaid track (the last row of a table, the
+        // right edge of a list) would jump the scroll position.
+        s.spacing.scroll = egui::style::ScrollStyle::floating();
+        s.spacing.scroll.bar_width = 8.0;
+        s.spacing.scroll.floating_allocated_width = 10.0;
     });
 }
 
@@ -169,6 +172,31 @@ fn install_fonts(ctx: &egui::Context) {
 
 impl eframe::App for ReviewBuddyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
+    }
+
+    fn on_exit(&mut self) {
+        self.shutdown();
+    }
+}
+
+impl ReviewBuddyApp {
+    /// An app on the synthetic demo PR, without eframe, for layout tests.
+    #[cfg(test)]
+    pub fn headless(ctx: &egui::Context, shape: Shape) -> Self {
+        install_fonts(ctx);
+        install_style(ctx);
+        let (spawner, jobs) = Spawner::inline();
+        let root = std::env::temp_dir().join(format!("rb-headless-{}", new_id()));
+        let services = Services::new(Arc::new(DemoGitHub::synthetic(shape, 25)), Arc::new(LocalStore::new(root)), AppSettings::default(), None, None);
+        let mut state = AppState::new(Arc::new(services), spawner);
+        state.refresh_inbox();
+        state.open(PRRef::new("demo", "synthetic", 1));
+        ReviewBuddyApp { state, view: ViewState::default(), jobs, metrics: None, snapshot: None, script: None, was_focused: true }
+    }
+
+    /// One frame of the whole window.
+    pub fn draw(&mut self, ui: &mut egui::Ui) {
         let frame_start = std::time::Instant::now();
         self.drain_jobs();
         self.drive_script(&ui.ctx().clone());
@@ -193,8 +221,11 @@ impl eframe::App for ReviewBuddyApp {
 
         self.keyboard(&ctx);
         let p = Palette::current(&ctx);
-        egui::Panel::top("toolbar").frame(egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin::symmetric(10, 6))).show(ui, |ui| {
+        egui::Panel::top("toolbar").exact_size(38.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(8, 0))).show(ui, |ui| {
             self.toolbar(ui);
+        });
+        egui::Panel::bottom("status").exact_size(28.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| {
+            self.status_bar(ui);
         });
         if self.state.ui.show_sidebar {
             egui::Panel::left("inbox").resizable(true).default_size(280.0).size_range(220.0..=420.0).show(ui, |ui| {
@@ -232,7 +263,7 @@ impl eframe::App for ReviewBuddyApp {
         }
     }
 
-    fn on_exit(&mut self) {
+    fn shutdown(&mut self) {
         self.state.services.store.flush();
         for s in self.state.prs.values() {
             for c in s.controllers.values() {
@@ -269,21 +300,24 @@ impl ReviewBuddyApp {
         }
     }
 
+    /// Zed-style title bar: what's open on the left, the review actions on the right.
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let p = pal(ui);
-        ui.horizontal(|ui| {
-            if icons::tool_button(ui, "☰").on_hover_text("Toggle inbox (⌃⌘S)").clicked() {
-                self.state.ui.show_sidebar = !self.state.ui.show_sidebar;
-            }
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
             let title = self.state.current_pr().and_then(|s| s.detail.as_ref().map(|d| d.title.clone())).unwrap_or_else(|| "Review Buddy".into());
-            ui.label(RichText::new(title).strong().size(14.0));
-            if let Some(r) = &self.state.current {
-                ui.label(RichText::new(r.to_string()).size(13.0).color(p.muted_text));
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if icons::tool_button(ui, "◨ Discuss").on_hover_text("Toggle Discuss panel (⌘\\)").clicked() {
-                    self.state.ui.show_discuss_panel = !self.state.ui.show_discuss_panel;
+            let reference = self.state.current.as_ref().map(|r| r.to_string());
+            // Title and reference truncate; the controls on the right always fit.
+            let right_w = 330.0;
+            let w = (ui.available_width() - right_w).max(80.0);
+            ui.allocate_ui_with_layout(egui::vec2(w, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.set_max_width(w);
+                if let Some(r) = reference {
+                    ui.add(egui::Label::new(RichText::new(r).size(13.0).color(p.muted_text)).selectable(false));
                 }
+                ui.add(egui::Label::new(RichText::new(title).size(13.0).color(p.text)).truncate().selectable(false));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if icons::tool_button(ui, "⚙").on_hover_text("Settings (⌘,)").clicked() {
                     self.state.ui.show_settings = true;
                 }
@@ -294,18 +328,51 @@ impl ReviewBuddyApp {
                 let s = self.state.current_pr().unwrap();
                 let (pending, n, mode) = (s.pending_comment_count(), s.local_commits.len(), s.view_mode());
                 let label = if pending > 0 { format!("Review ({pending}) ▾") } else { "Review ▾".into() };
-                if gh_button(ui, &label, BtnKind::Primary, true).on_hover_text("Finish your review").clicked() {
+                if common::gh_button_ex(ui, &label, &["Review (99) ▾"], BtnKind::Primary, true).on_hover_text("Finish your review").clicked() {
                     self.state.ui.show_submit_review = !self.state.ui.show_submit_review;
                 }
                 if n > 0 && icons::tool_button(ui, &format!("⬆ {n} local")).on_hover_text("Push fix commits to the PR branch").clicked() {
                     self.state.ui.show_push_sheet = true;
                 }
                 let mut new_mode = mode;
-                ui.selectable_value(&mut new_mode, DiffViewMode::Split, "Split");
-                ui.selectable_value(&mut new_mode, DiffViewMode::Unified, "Unified");
-                if new_mode != mode {
+                if icons::segmented(ui, &mut new_mode, &[(DiffViewMode::Unified, "Unified"), (DiffViewMode::Split, "Split")], 12.0) {
                     self.state.current_pr_mut().unwrap().set_mode(new_mode);
                 }
+            });
+        });
+    }
+
+    /// Zed-style status bar: panel toggles at the ends, review progress in between.
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        let p = pal(ui);
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let on = |b: bool| if b { p.text } else { p.muted_text };
+            if icons::icon_button(ui, icons::Icon::SidebarLeft, 14.0, on(self.state.ui.show_sidebar), true).on_hover_text("Toggle inbox (⌃⌘S)").clicked() {
+                self.state.ui.show_sidebar = !self.state.ui.show_sidebar;
+            }
+            if let Some(s) = self.state.current_pr() {
+                if s.diff.is_some() {
+                    ui.add_space(6.0);
+                    let (viewed, total) = (s.viewed_count(), s.files().len());
+                    ui.add(egui::Label::new(RichText::new(format!("{viewed} / {total} files viewed")).size(12.0).color(p.muted_text)).selectable(false));
+                    let threads = s.threads.values().filter(|t| !t.is_resolved).count();
+                    if threads > 0 {
+                        ui.add_space(8.0);
+                        icons::label(ui, &format!("💬 {threads} open"), 12.0, p.muted_text);
+                    }
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let open = self.state.ui.show_discuss_panel;
+                if icons::icon_button(ui, icons::Icon::Sidebar, 14.0, on(open), true).on_hover_text("Toggle Discuss panel (⌘\\)").clicked() {
+                    self.state.ui.show_discuss_panel = !open;
+                }
+                if icons::icon_button(ui, icons::Icon::Sparkle, 13.0, if open { p.ai_accent } else { p.muted_text }, true).on_hover_text("Discuss with Claude (D)").clicked() {
+                    self.state.ui.show_discuss_panel = !open;
+                }
+                ui.add_space(6.0);
+                ui.add(egui::Label::new(RichText::new("⌘K  Commands").size(12.0).color(p.placeholder)).selectable(false));
             });
         });
     }
@@ -579,7 +646,7 @@ impl ReviewBuddyApp {
                 run = Some(self.view.palette_selected);
             }
             ui.separator();
-            egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).max_height(340.0).show(ui, |ui| {
                 for (n, (_, i)) in list.iter().enumerate() {
                     let it = &items[*i];
                     let selected = n == self.view.palette_selected;

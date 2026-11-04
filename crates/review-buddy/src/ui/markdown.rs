@@ -96,21 +96,40 @@ fn list_ui(ui: &mut Ui, l: &MarkdownList, ctx: &[String], st: &MdStyle) {
 
 fn table_ui(ui: &mut Ui, t: &MarkdownTable, st: &MdStyle) {
     let p = pal(ui);
-    egui::ScrollArea::horizontal().id_salt(ui.next_auto_id()).show(ui, |ui| {
-        egui::Grid::new(ui.next_auto_id()).striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
-            for (c, h) in t.header.iter().enumerate() {
-                cell(ui, h, t.alignments.get(c).copied(), st.size, p.text, true);
-            }
-            ui.end_row();
-            for row in &t.rows {
-                for c in 0..t.column_count() {
-                    let text = row.get(c).map(String::as_str).unwrap_or("");
-                    cell(ui, text, t.alignments.get(c).copied(), st.size, p.text, false);
-                }
-                ui.end_row();
-            }
-        });
+    // Ids from the content, not the widget count: they must not change between frames.
+    let key = (ui.id(), t.header.join("|"), t.rows.len());
+    let size_id = egui::Id::new(("md-table-size", &key));
+    let r = ui.scope(|ui| {
+        // Selecting text in a cell that's partly scrolled out would scroll the table under
+        // the pointer (egui keeps the cursor in view), so table text isn't selectable.
+        ui.style_mut().interaction.selectable_labels = false;
+        egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+            .id_salt(("md-table", &key))
+            .scroll_source(egui::scroll_area::ScrollSource::SCROLL_BAR | egui::scroll_area::ScrollSource::MOUSE_WHEEL)
+            .show(ui, |ui| {
+                egui::Grid::new(("md-grid", &key)).striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
+                    for (c, h) in t.header.iter().enumerate() {
+                        cell(ui, h, t.alignments.get(c).copied(), st.size, p.text, true);
+                    }
+                    ui.end_row();
+                    for row in &t.rows {
+                        for c in 0..t.column_count() {
+                            let text = row.get(c).map(String::as_str).unwrap_or("");
+                            cell(ui, text, t.alignments.get(c).copied(), st.size, p.text, false);
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
     });
+    // A grid learns its column widths in its first frame; lay that frame out again so
+    // what follows the table doesn't jump a frame later.
+    let size = r.response.rect.size();
+    let old = ui.data(|d| d.get_temp::<egui::Vec2>(size_id));
+    if old != Some(size) {
+        ui.data_mut(|d| d.insert_temp(size_id, size));
+        ui.ctx().request_discard("markdown table size changed");
+    }
 }
 
 fn cell(ui: &mut Ui, text: &str, align: Option<TableAlignment>, size: f32, color: Color32, bold: bool) {
@@ -155,7 +174,7 @@ fn code_block(ui: &mut Ui, text: &str, lang: Option<&str>, p: &Palette) {
                 None => job.append(line, 0.0, TextFormat::simple(font.clone(), p.text)),
             }
         }
-        egui::ScrollArea::horizontal().id_salt(ui.next_auto_id()).show(ui, |ui| {
+        egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).id_salt(ui.next_auto_id()).scroll_source(egui::scroll_area::ScrollSource::SCROLL_BAR | egui::scroll_area::ScrollSource::MOUSE_WHEEL).show(ui, |ui| {
             ui.add(egui::Label::new(job).extend());
         });
     });

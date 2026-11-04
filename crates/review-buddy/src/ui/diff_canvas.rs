@@ -157,7 +157,7 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
     }
     let content_h = *cs.offsets.last().unwrap_or(&0.0);
 
-    let mut sa = egui::ScrollArea::vertical().id_salt(("diff", store.pr_ref.to_string())).auto_shrink([false, false]);
+    let mut sa = egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).id_salt(("diff", store.pr_ref.to_string())).auto_shrink([false, false]);
     if let Some(y) = cs.force_scroll.take() {
         sa = sa.vertical_scroll_offset(y.max(0.0));
     }
@@ -258,7 +258,9 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
         }
         if changed {
             rebuild_offsets(store, cs, metrics);
-            ui.ctx().request_repaint();
+            // The rows below were placed with the old height: lay the frame out again
+            // before it's shown, so a new or resized block never flickers into place.
+            ui.ctx().request_discard("inline block height changed");
         }
 
         // Sticky header for the file under the top edge.

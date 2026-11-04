@@ -62,7 +62,7 @@ fn thread_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if t.is_resolved && ui.link(if collapsed { "Show" } else { "Hide" }).clicked() {
+                        if t.is_resolved && super::common::gh_button_ex(ui, if collapsed { "Show" } else { "Hide" }, &["Show", "Hide"], BtnKind::Invisible, true).clicked() {
                             ui.data_mut(|d| d.insert_temp(exp_id, !expanded));
                         }
                     });
@@ -197,11 +197,9 @@ pub fn inline_composer(ui: &mut Ui, store: &mut PRStore, c: &Composer, placehold
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         ui.horizontal(|ui| {
-            if ui.selectable_label(!preview, "Write").clicked() {
-                ui.data_mut(|d| d.insert_temp(preview_id, false));
-            }
-            if ui.selectable_label(preview, "Preview").clicked() {
-                ui.data_mut(|d| d.insert_temp(preview_id, true));
+            let mut tab = preview;
+            if super::icons::segmented(ui, &mut tab, &[(false, "Write"), (true, "Preview")], 12.0) {
+                ui.data_mut(|d| d.insert_temp(preview_id, tab));
             }
             if c.anchor().is_some() {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -257,9 +255,7 @@ pub fn inline_composer(ui: &mut Ui, store: &mut PRStore, c: &Composer, placehold
             ui.label(RichText::new(hint).size(12.0).color(p.muted_text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let ok = !text.trim().is_empty() && !c.is_submitting;
-                if c.is_submitting {
-                    spinner(ui);
-                } else if gh_button(ui, submit_title, BtnKind::Primary, ok).clicked() {
+                if super::common::gh_button_busy(ui, submit_title, &[], BtnKind::Primary, ok, c.is_submitting).clicked() {
                     submit = Some(false);
                 }
                 if offers_single && gh_button(ui, "Add single comment", BtnKind::Default, ok).on_hover_text("Publish now, outside a review (⇧⌘↩)").clicked() {

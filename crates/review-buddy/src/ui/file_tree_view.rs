@@ -216,7 +216,7 @@ fn file_list(ui: &mut Ui, store: &PRStore, state: &mut FileTreeState, p: &Palett
         }
     }
 
-    let mut area = egui::ScrollArea::vertical().id_salt("file_tree_list").auto_shrink([false, false]).max_height(list_h);
+    let mut area = egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).id_salt("file_tree_list").auto_shrink([false, false]).max_height(list_h);
     if let Some(y) = scroll_to {
         area = area.vertical_scroll_offset(y);
     }

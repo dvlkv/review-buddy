@@ -70,7 +70,7 @@ pub fn overview(ui: &mut Ui, store: &mut PRStore, state: &mut OverviewState) {
     }
     let p = pal(ui);
     let mut actions = vec![];
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::symmetric(4, 12)).show(ui, |ui| {
             ui.set_max_width(900.0_f32.min(ui.available_width()));
             ui.spacing_mut().item_spacing.y = 16.0;
@@ -836,9 +836,7 @@ fn merge_button(ui: &mut Ui, store: &PRStore, st: &PRMergeStatus, state: &mut Ov
                 MergeMethod::Squash => "Confirm squash and merge",
                 MergeMethod::Rebase => "Confirm rebase and merge",
             };
-            if merging {
-                spinner(ui);
-            } else if filled_button(ui, title, tint, true, CornerRadius::same(6)).clicked() {
+            if filled_button_busy(ui, title, tint, true, CornerRadius::same(6), merging).clicked() {
                 actions.push(Action::Merge(method, state.bypass && !can_merge));
             }
             if gh_button(ui, "Cancel", BtnKind::Default, !merging).clicked() {
@@ -890,8 +888,15 @@ fn merge_button(ui: &mut Ui, store: &PRStore, st: &PRMergeStatus, state: &mut Ov
 }
 
 fn filled_button(ui: &mut Ui, text: &str, color: Color32, enabled: bool, radius: CornerRadius) -> egui::Response {
-    let look = super::icons::Look { fill: color, fg: Color32::WHITE, stroke: Color32::TRANSPARENT, native: false, frame: true, radius };
-    super::icons::button(ui, text, egui::FontId::proportional(13.0), look, 28.0, enabled)
+    filled_button_busy(ui, text, color, enabled, radius, false)
+}
+
+/// A tinted button in `color` (merge green, blocked red).
+fn filled_button_busy(ui: &mut Ui, text: &str, color: Color32, enabled: bool, radius: CornerRadius, busy: bool) -> egui::Response {
+    let p = pal(ui);
+    let (fill, stroke, fg) = p.tinted(color);
+    let look = super::icons::Look { fill, fg, stroke, native: false, frame: true, radius };
+    super::icons::button_full(ui, text, &[], egui::FontId::proportional(13.0), look, 28.0, enabled, busy)
 }
 
 // MARK: - Comment box
@@ -931,28 +936,23 @@ fn comment_composer(ui: &mut Ui, store: &PRStore, state: &mut OverviewState, p: 
             ui.label(RichText::new("Posted to GitHub right away, outside your review.").size(12.0).color(p.muted_text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                if posting {
-                    spinner(ui);
-                } else if gh_button(ui, "Comment", BtnKind::Primary, has_text && !closing).on_hover_text("⌘↩").clicked()
+                if super::common::gh_button_busy(ui, "Comment", &[], BtnKind::Primary, has_text && !closing, posting).on_hover_text("⌘↩").clicked()
                     || (submit_key && has_text && !closing)
                 {
                     actions.push(Action::Comment);
                 }
                 if can_close {
                     let closed = d.state == "CLOSED";
-                    if closing {
-                        spinner(ui);
+                    let (title, kind) = if closed {
+                        ("Reopen pull request", BtnKind::Default)
+                    } else if state.comment.is_empty() {
+                        ("Close pull request", BtnKind::Danger)
                     } else {
-                        let (title, kind) = if closed {
-                            ("Reopen pull request", BtnKind::Default)
-                        } else if state.comment.is_empty() {
-                            ("Close pull request", BtnKind::Danger)
-                        } else {
-                            ("Close with comment", BtnKind::Danger)
-                        };
-                        if gh_button(ui, title, kind, !posting).clicked() {
-                            actions.push(Action::SetClosed(!closed));
-                        }
+                        ("Close with comment", BtnKind::Danger)
+                    };
+                    let all = ["Reopen pull request", "Close pull request", "Close with comment"];
+                    if super::common::gh_button_busy(ui, title, &all, kind, !posting, closing).clicked() {
+                        actions.push(Action::SetClosed(!closed));
                     }
                 }
             });

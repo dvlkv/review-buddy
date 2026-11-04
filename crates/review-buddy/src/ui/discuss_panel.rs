@@ -86,7 +86,7 @@ fn thread_list(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
     let threads = store.sorted_discuss_threads();
     let mut open: Option<String> = None;
     let mut delete: Option<String> = None;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for t in &threads {
             let inner = egui::Frame::new().inner_margin(Margin::symmetric(12, 7)).show(ui, |ui| {
@@ -169,7 +169,7 @@ fn conversation(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState,
     // Transcript.
     egui::CentralPanel::default().frame(egui::Frame::new().fill(p.canvas)).show(ui, |ui| {
         let c = &store.controllers[id];
-        egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+        egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
             egui::Frame::new().inner_margin(Margin::same(12)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 10.0;
@@ -314,17 +314,14 @@ fn bottom_area(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState, 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let label = if drafting { "Drafting…" } else { "→ Comment" };
-            if gh_button(ui, label, BtnKind::Default, has_answer && !running && !drafting)
+            if super::common::gh_button_ex(ui, label, &["Drafting…", "→ Comment"], BtnKind::Default, has_answer && !running && !drafting)
                 .on_hover_text("Draft a review comment from this conversation")
                 .clicked()
             {
                 *intent = Some(Intent::Convert);
             }
-            if drafting {
-                spinner(ui);
-            }
             let fix_label = if c.is_fixing() { "Fixing…" } else { "Fix it" };
-            if gh_button(ui, fix_label, BtnKind::Ai, has_answer && !running)
+            if super::common::gh_button_ex(ui, fix_label, &["Fixing…", "Fix it"], BtnKind::Ai, has_answer && !running)
                 .on_hover_text("Ask Claude to implement the fix and commit it to the PR branch (not pushed)")
                 .clicked()
             {
@@ -345,10 +342,11 @@ fn bottom_area(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState, 
             .inner_margin(Margin::symmetric(5, 5));
         let edit_id = ui.id().with(("discuss-input", id));
         let has_focus = ui.memory(|m| m.has_focus(edit_id));
-        let frame = frame.stroke(if has_focus { Stroke::new(1.5, p.ai_accent) } else { Stroke::new(1.0, p.border) });
+        // Focus changes the border color only: a thicker border would shift the text.
+        let frame = frame.stroke(Stroke::new(1.0, if has_focus { p.ai_accent } else { p.border }));
         frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
-            egui::ScrollArea::vertical().max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
+            egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
                 let hint = if c.messages().is_empty() { "Ask about these lines…" } else { "Reply to Claude…" };
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut c.input)
@@ -481,7 +479,7 @@ fn tool_row(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: 
                 let text = format!("{}\n\n{}", m.tool_input.as_deref().unwrap_or(""), m.tool_result.as_deref().unwrap_or("…"));
                 egui::Frame::new().fill(p.subtle).corner_radius(CornerRadius::same(6)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    egui::ScrollArea::both().id_salt(("tool-body", &m.id)).max_height(220.0).auto_shrink([false, true]).show(ui, |ui| {
+                    egui::ScrollArea::both().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).id_salt(("tool-body", &m.id)).max_height(220.0).auto_shrink([false, true]).show(ui, |ui| {
                         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
                             ui.add(egui::Label::new(RichText::new(text).font(FontId::monospace(12.0)).color(p.text)).extend());
                         });

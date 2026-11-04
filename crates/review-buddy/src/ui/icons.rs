@@ -10,6 +10,7 @@ pub enum Icon {
     Menu,
     Gear,
     Sidebar,
+    SidebarLeft,
     ChevronDown,
     ChevronUp,
     ChevronRight,
@@ -117,6 +118,13 @@ pub fn paint(painter: &egui::Painter, r: Rect, icon: Icon, color: Color32) {
                 .collect();
             painter.add(Shape::closed_line(pts, st));
             painter.circle_stroke(c, s * 0.15, st);
+        }
+        Icon::SidebarLeft => {
+            let b = Rect::from_min_max(at(0.04, 0.14), at(0.96, 0.86));
+            painter.rect_stroke(b, CornerRadius::same(2), st, egui::StrokeKind::Middle);
+            let x = r.left() + s * 0.38;
+            painter.rect_filled(Rect::from_min_max(b.min, Pos2::new(x, b.bottom())), CornerRadius { nw: 2, sw: 2, ne: 0, se: 0 }, color.gamma_multiply(0.45));
+            painter.line_segment([Pos2::new(x, b.top()), Pos2::new(x, b.bottom())], st);
         }
         Icon::Sidebar => {
             let b = Rect::from_min_max(at(0.04, 0.14), at(0.96, 0.86));
@@ -273,47 +281,75 @@ pub struct Look {
 /// A button with optional icons around its text. Text like "✦ Discuss" or "Review ▾" is
 /// split into icon + label.
 pub fn button(ui: &mut Ui, text: &str, font: FontId, look: Look, min_h: f32, enabled: bool) -> Response {
+    button_ex(ui, text, &[], font, look, min_h, enabled)
+}
+
+/// Like [`button`], but as wide as the widest of `text` and `variants`, so a button whose
+/// label changes ("Fix it" → "Fixing…", "Show" → "Hide") never changes size.
+pub fn button_ex(ui: &mut Ui, text: &str, variants: &[&str], font: FontId, look: Look, min_h: f32, enabled: bool) -> Response {
+    button_full(ui, text, variants, font, look, min_h, enabled, false)
+}
+
+/// The general button. `busy`: work is running — the button stays put, disabled, with a
+/// spinner in place of its label (instead of being swapped for a spinner, which would
+/// shrink the row).
+#[allow(clippy::too_many_arguments)]
+pub fn button_full(ui: &mut Ui, text: &str, variants: &[&str], font: FontId, look: Look, min_h: f32, enabled: bool, busy: bool) -> Response {
+    let enabled = enabled && !busy;
     let (lead, label, trail) = split(text);
     let icon_only = label.is_empty();
     let pad_x = if icon_only { 6.0 } else if look.frame { 10.0 } else { 4.0 };
-    let w = row_width(ui, lead, label, trail, &font) + pad_x * 2.0;
+    let w = std::iter::once(text)
+        .chain(variants.iter().copied())
+        .map(|t| {
+            let (l, t, r) = split(t);
+            row_width(ui, l, t, r, &font)
+        })
+        .fold(0.0, f32::max)
+        + pad_x * 2.0;
     let h = min_h.max(font.size + 10.0);
     let w = if icon_only { w.max(h) } else { w };
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, h), if enabled { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, if label.is_empty() { text } else { label }));
     if !ui.is_rect_visible(rect) {
         return resp;
     }
     let hovered = enabled && resp.hovered();
     let pressed = enabled && resp.is_pointer_button_down_on();
+    let p = crate::theme::Palette::current(ui.ctx());
     let mut fg = look.fg;
-    if look.frame {
-        let (fill, stroke) = if look.native {
-            let v = if enabled { ui.style().interact(&resp) } else { &ui.style().visuals.widgets.inactive };
-            (v.weak_bg_fill, v.bg_stroke)
+    // Zed-style states: hover and press shade the fill toward the text color; ghost
+    // buttons (no fill) get the theme's hover / active background. Size never changes.
+    let base = if look.frame && !look.native { look.fill } else { Color32::TRANSPARENT };
+    let fill = if base.a() == 0 {
+        if pressed {
+            p.active
+        } else if hovered {
+            p.hover
         } else {
-            let f = if pressed {
-                look.fill.gamma_multiply(0.85)
-            } else if hovered {
-                lighten(look.fill, ui.visuals().dark_mode)
-            } else {
-                look.fill
-            };
-            (f, Stroke::new(1.0, look.stroke))
-        };
-        let (fill, stroke) = if enabled { (fill, stroke) } else { (fill.gamma_multiply(0.55), Stroke::new(stroke.width, stroke.color.gamma_multiply(0.55))) };
-        ui.painter().rect(rect, look.radius, fill, stroke, egui::StrokeKind::Inside);
-    } else if hovered {
-        if look.native {
-            ui.painter().rect_filled(rect, CornerRadius::same(5), ui.visuals().widgets.hovered.weak_bg_fill);
-        } else {
-            fg = lighten(fg, !ui.visuals().dark_mode);
+            Color32::TRANSPARENT
         }
-    }
+    } else if pressed {
+        crate::theme::over(look.fg, 0.16, base)
+    } else if hovered {
+        crate::theme::over(look.fg, 0.08, base)
+    } else {
+        base
+    };
+    let stroke = if look.frame && !look.native { look.stroke } else { Color32::TRANSPARENT };
+    let (fill, stroke) = if enabled { (fill, stroke) } else { (fill.gamma_multiply(0.6), stroke.gamma_multiply(0.6)) };
+    ui.painter().rect(rect, look.radius, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
     if !enabled {
-        fg = fg.gamma_multiply(0.5);
+        fg = fg.gamma_multiply(0.45);
     }
-    let content_w = w - pad_x * 2.0;
-    let x = if icon_only { rect.center().x - content_w / 2.0 } else { rect.left() + pad_x };
+    if busy {
+        let s = (font.size * 0.95).round();
+        egui::Spinner::new().size(s).color(look.fg).paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(s)));
+        return resp;
+    }
+    // Centered: wider-than-needed buttons (see `button_ex`) keep their label in the middle.
+    let content_w = row_width(ui, lead, label, trail, &font);
+    let x = rect.center().x - content_w / 2.0;
     paint_row(ui, lead, label, trail, &font, fg, x, rect.center().y);
     if enabled {
         resp.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -322,19 +358,55 @@ pub fn button(ui: &mut Ui, text: &str, font: FontId, look: Look, min_h: f32, ena
     }
 }
 
+/// A segmented control: options share one frame; the selected one is filled. Every
+/// segment keeps its size whatever the state. Returns true when the value changed.
+pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)], font_size: f32) -> bool {
+    let p = crate::theme::Palette::current(ui.ctx());
+    let mut changed = false;
+    egui::Frame::new()
+        .fill(p.subtle)
+        .stroke(Stroke::new(1.0, p.border))
+        .corner_radius(CornerRadius::same(p.radius + 1))
+        .inner_margin(egui::Margin::same(1))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 1.0;
+            ui.horizontal(|ui| {
+                for (v, label) in options {
+                    let selected = *value == *v;
+                    let look = Look {
+                        fill: if selected { p.selected_control } else { Color32::TRANSPARENT },
+                        fg: if selected { p.text } else { p.muted_text },
+                        stroke: Color32::TRANSPARENT,
+                        native: false,
+                        frame: true,
+                        radius: CornerRadius::same(p.radius),
+                    };
+                    if button(ui, label, FontId::proportional(font_size), look, 22.0, true).clicked() && !selected {
+                        *value = *v;
+                        changed = true;
+                    }
+                }
+            });
+        });
+    changed
+}
+
 /// A toolbar button that looks like egui's own (`ui.button`), with icons.
 pub fn tool_button(ui: &mut Ui, text: &str) -> Response {
-    let fg = ui.visuals().text_color();
-    let look = Look { fill: Color32::TRANSPARENT, fg, stroke: Color32::TRANSPARENT, native: true, frame: true, radius: CornerRadius::same(6) };
+    let p = crate::theme::Palette::current(ui.ctx());
+    let look = Look { fill: Color32::TRANSPARENT, fg: p.text, stroke: Color32::TRANSPARENT, native: false, frame: true, radius: CornerRadius::same(p.radius) };
     button(ui, text, FontId::proportional(13.0), look, 24.0, true)
 }
 
 /// A frameless icon button (hover shows a background).
 pub fn icon_button(ui: &mut Ui, icon: Icon, size: f32, color: Color32, enabled: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size + 8.0), if enabled { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("{icon:?}")));
     let hovered = enabled && resp.hovered();
     if hovered {
-        ui.painter().rect_filled(rect, CornerRadius::same(5), ui.visuals().widgets.hovered.weak_bg_fill);
+        let p = crate::theme::Palette::current(ui.ctx());
+        let bg = if resp.is_pointer_button_down_on() { p.active } else { p.hover };
+        ui.painter().rect_filled(rect, CornerRadius::same(p.radius), bg);
     }
     let c = if enabled { color } else { color.gamma_multiply(0.5) };
     paint(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(size)), icon, c);
@@ -366,11 +438,6 @@ pub fn icon(ui: &mut Ui, icon: Icon, size: f32, color: Color32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(isz, h), Sense::hover());
     paint(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(isz)), icon, color);
     resp
-}
-
-fn lighten(c: Color32, toward_white: bool) -> Color32 {
-    let t = if toward_white { Color32::WHITE } else { Color32::BLACK };
-    egui::ecolor::tint_color_towards(c, t).lerp_to_gamma(c, 0.75)
 }
 
 #[cfg(test)]

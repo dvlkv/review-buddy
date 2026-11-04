@@ -148,7 +148,7 @@ impl ReviewBuddyApp {
         self.script = Some(r);
     }
 
-    fn run_command(&mut self, ctx: &egui::Context, r: &mut ScriptRunner, parts: &[String], next: &mut f64) {
+    pub(crate) fn run_command(&mut self, ctx: &egui::Context, r: &mut ScriptRunner, parts: &[String], next: &mut f64) {
         let arg = |i: usize| parts.get(i).and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
         let rest = |from: usize| parts.get(from..).map(|v| v.join(":")).unwrap_or_default();
         let cmd = parts[0].as_str();

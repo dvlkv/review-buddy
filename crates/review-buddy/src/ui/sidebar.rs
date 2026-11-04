@@ -44,7 +44,7 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
         });
 
     let current = state.current.clone();
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         for section in &state.inbox.sections {

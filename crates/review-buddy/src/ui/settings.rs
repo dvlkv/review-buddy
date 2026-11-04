@@ -47,6 +47,12 @@ impl SettingsState {
         self.editing_clone = None;
         *self.gh_status.lock().unwrap() = None;
         *self.pat_loaded.lock().unwrap() = None;
+        // Tests never touch the real `gh` or Keychain.
+        if cfg!(test) {
+            *self.gh_status.lock().unwrap() = Some("Logged in to github.com account octocat".into());
+            *self.pat_loaded.lock().unwrap() = Some(String::new());
+            return;
+        }
 
         let status = self.gh_status.clone();
         let c = ctx.clone();
@@ -107,7 +113,7 @@ pub fn settings_window(ctx: &egui::Context, state: &mut AppState, s: &mut Settin
             ui.set_min_height(420.0);
             tab_bar(ui, &mut s.tab);
             ui.add_space(8.0);
-            egui::ScrollArea::vertical().max_height(520.0).auto_shrink([false, true]).show(ui, |ui| match s.tab {
+            egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).max_height(520.0).auto_shrink([false, true]).show(ui, |ui| match s.tab {
                 Tab::Accounts => accounts_tab(ui, state, s, &mut edited),
                 Tab::Repositories => pinned_changed = repos_tab(ui, s, &mut edited),
                 Tab::Review => review_tab(ui, &mut edited),
@@ -265,7 +271,7 @@ fn accounts_tab(ui: &mut Ui, state: &AppState, s: &mut SettingsState, edited: &m
             }
         });
         if save {
-            s.pat_saved = Some(Keychain::write(PAT_ACCOUNT, s.pat.trim()));
+            s.pat_saved = Some(!cfg!(test) && Keychain::write(PAT_ACCOUNT, s.pat.trim()));
         }
     });
 
