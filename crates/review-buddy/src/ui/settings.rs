@@ -485,7 +485,6 @@ fn review_tab(ui: &mut Ui, s: &mut AppSettings) {
             s.font_size = size as f64;
         }
         divider(ui);
-        toggle(ui, "Hide whitespace changes", &mut s.hide_whitespace);
     });
 
     section(ui, "Notifications", None, |ui| {
