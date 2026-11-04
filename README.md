@@ -138,6 +138,11 @@ Run the tests:
 ```sh
 cargo test --workspace         # core + app (store) tests
 Scripts/perf-check.sh          # scripted UI performance run against budgets
+
+# Layout stability sweep (~8 min): every screen, both themes; fails if anything moves
+# or changes size on rerender, on the first frame after a change, on hover, press or click.
+cargo test --release -p review-buddy layout_sweep -- --ignored --nocapture
+SWEEP_ONLY=discuss,composer cargo test --release -p review-buddy layout_sweep -- --ignored --nocapture
 ```
 
 Scripted UI checks render PNGs without screen-recording permission:

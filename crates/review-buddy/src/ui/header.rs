@@ -89,18 +89,18 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
 
 fn state_badge(ui: &mut Ui, d: &PRDetail, p: &Palette) {
     if d.is_draft {
-        pill(ui, "Draft", p.muted_text, true);
+        pill(ui, "Draft", p.muted_text, false);
     } else if d.state == "MERGED" {
-        pill(ui, "Merged", p.ai_accent, true);
+        pill(ui, "Merged", p.ai_accent, false);
     } else if d.state == "CLOSED" {
-        pill(ui, "Closed", p.del_marker, true);
+        pill(ui, "Closed", p.del_marker, false);
     } else {
-        pill(ui, "Open", Color32::from_rgb(0x1F, 0x88, 0x3D), true);
+        pill(ui, "Open", p.success, false);
     }
 }
 
 pub fn branch(ui: &mut Ui, name: &str, p: &Palette) {
-    egui::Frame::new().fill(p.accent.gamma_multiply(0.1)).corner_radius(5).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
+    egui::Frame::new().fill(p.accent_bg).corner_radius(p.radius).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
         let r = ui.add(egui::Label::new(RichText::new(name).monospace().size(12.5).color(p.accent)).sense(egui::Sense::click()));
         if r.on_hover_text("Click to copy").clicked() {
             ui.ctx().copy_text(name.to_string());

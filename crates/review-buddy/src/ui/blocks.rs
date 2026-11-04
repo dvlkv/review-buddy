@@ -286,11 +286,12 @@ fn discuss_marker(ui: &mut Ui, store: &mut PRStore, id: &str) -> Option<BlockAct
     let active = store.active_discuss_id.as_deref() == Some(id);
     let running = store.controllers.get(id).map(|c| c.is_running()).unwrap_or(false);
     let fix = store.fix_status(id).cloned();
-    let stroke = Stroke::new(if active { 1.5 } else { 1.0 }, p.ai_accent.gamma_multiply(if active { 0.9 } else { 0.35 }));
+    // Selection changes the border's color, never its width (that would shift the card).
+    let stroke = Stroke::new(1.0, if active { p.ai_accent.gamma_multiply(0.8) } else { p.muted_border });
     let r = egui::Frame::new()
         .fill(p.ai_bg)
         .stroke(stroke)
-        .corner_radius(6)
+        .corner_radius(p.radius + 2)
         .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());

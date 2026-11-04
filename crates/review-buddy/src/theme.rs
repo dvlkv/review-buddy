@@ -205,7 +205,8 @@ impl Palette {
         v.warn_fg_color = self.attention;
         v.error_fg_color = self.del_marker;
         v.selection.bg_fill = self.text_selection;
-        v.selection.stroke = Stroke::new(1.0, self.accent);
+        // Focused text fields and keyboard focus rings.
+        v.selection.stroke = Stroke::new(1.0, self.focus_border);
         v.text_cursor.stroke = Stroke::new(2.0, self.accent);
         v.window_shadow = egui::epaint::Shadow { offset: [0, 6], blur: 20, spread: 0, color: Color32::from_black_alpha(if self.dark { 90 } else { 40 }) };
         v.popup_shadow = egui::epaint::Shadow { offset: [0, 4], blur: 12, spread: 0, color: Color32::from_black_alpha(if self.dark { 80 } else { 30 }) };

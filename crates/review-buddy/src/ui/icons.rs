@@ -371,7 +371,10 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
             ui.horizontal(|ui| {
-                for (v, label) in options {
+                // In a right-to-left row the first option would end up last.
+                let rtl = ui.layout().prefer_right_to_left();
+                let ordered: Vec<&(T, &str)> = if rtl { options.iter().rev().collect() } else { options.iter().collect() };
+                for (v, label) in ordered {
                     let selected = *value == *v;
                     let look = Look {
                         fill: if selected { p.selected_control } else { Color32::TRANSPARENT },

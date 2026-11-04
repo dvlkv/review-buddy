@@ -50,14 +50,15 @@ pub fn btn_look(p: &Palette, kind: BtnKind) -> super::icons::Look {
 /// A rounded label like GitHub's "Pending" / "Outdated" badges.
 pub fn pill(ui: &mut Ui, text: &str, color: Color32, filled: bool) -> Response {
     let font = FontId::proportional(11.5);
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
+    let fg = if filled { pal(ui).canvas } else { color };
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, fg);
     let size = galley.size() + Vec2::new(12.0, 4.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let p = pal(ui);
     let bg = if filled { color } else { crate::theme::over(color, 0.14, p.canvas) };
     let border = if filled { color } else { crate::theme::over(color, 0.4, p.canvas) };
     ui.painter().rect(rect, CornerRadius::same(p.radius), bg, Stroke::new(1.0, border), egui::StrokeKind::Inside);
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, if filled { pal(ui).canvas } else { color });
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, fg);
     resp
 }
 
@@ -128,4 +129,17 @@ pub fn suggestion_preview(ui: &mut Ui, old: &[String], new: &[String]) {
 /// Indeterminate spinner sized for inline use.
 pub fn spinner(ui: &mut Ui) {
     ui.add(egui::Spinner::new().size(12.0));
+}
+
+/// For panels sized by their content (egui sizes a panel from the previous frame): when
+/// the content's height changes — first appearance, a growing input — lay the frame out
+/// again before it's shown, so the panel and what's next to it never jump a frame late.
+pub fn settle_panel(ui: &Ui, id: impl std::hash::Hash + std::fmt::Debug, r: &Response) {
+    let key = egui::Id::new(("panel-height", id));
+    let h = r.rect.height();
+    let old = ui.data(|d| d.get_temp::<f32>(key));
+    if old.is_none_or(|o| (o - h).abs() > 0.1) {
+        ui.data_mut(|d| d.insert_temp(key, h));
+        ui.ctx().request_discard("panel height changed");
+    }
 }

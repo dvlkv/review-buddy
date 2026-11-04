@@ -19,7 +19,7 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
     let mut action = None;
 
     // Opaque bottom bar, laid out first so the list scrolls above it.
-    egui::Panel::bottom("inbox_bar")
+    let bar = egui::Panel::bottom("inbox_bar")
         .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin::symmetric(10, 7)))
         .show_separator_line(true)
         .show(ui, |ui| {
@@ -42,6 +42,7 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
                 });
             });
         });
+    crate::ui::common::settle_panel(ui, "inbox_bar", &bar.response);
 
     let current = state.current.clone();
     egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).show(ui, |ui| {
@@ -206,18 +207,14 @@ fn inbox_row(ui: &mut Ui, p: &Palette, pr: &PRSummary, show_repo: bool, selected
     // Advance past the top inset reserved above the scope.
     ui.advance_cursor_after_rect(bg_rect);
     let fill = if selected {
-        if p.dark { p.accent.gamma_multiply(0.22) } else { p.accent.gamma_multiply(0.12) }
+        p.active
     } else if resp.hovered() {
-        p.subtle
+        p.hover
     } else {
         Color32::TRANSPARENT
     };
     if fill != Color32::TRANSPARENT {
-        ui.painter().set(bg_idx, Shape::rect_filled(bg_rect, CornerRadius::same(6), fill));
-    }
-    if selected {
-        let bar = Rect::from_min_size(bg_rect.left_top() + Vec2::new(0.0, 4.0), Vec2::new(3.0, bg_rect.height() - 8.0));
-        ui.painter().rect_filled(bar, CornerRadius::same(2), p.accent);
+        ui.painter().set(bg_idx, Shape::rect_filled(bg_rect, CornerRadius::same(p.radius), fill));
     }
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     ui.add_space(2.0);

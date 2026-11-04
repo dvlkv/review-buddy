@@ -57,7 +57,7 @@ A native desktop app (macOS first) for reviewing GitHub pull requests. It looks 
 - **Split / unified** toggle, remembered per user. In split mode, deletions and additions are lined up within each change block, like GitHub does.
 - Large files (>2,000 changed lines) and generated or binary files are collapsed by default with "Load diff".
 - "Expand context" (↑/↓ arrows on hunk headers) loads lines from the file contents.
-- Colors and spacing follow GitHub's Primer tokens and adapt to light and dark mode.
+- Colors follow Zed's One Dark / One Light themes; the look is Zed-like: flat surfaces, hairline borders, small radii, tinted buttons, a title bar and a status bar with the panel toggles. Nothing changes size on hover, press or rerender (checked by the layout sweep test).
 
 ### 3.2 Selecting lines
 - Click a line's gutter to select it; drag or Shift-click to select a range. A selection stays on one side (old or new), matching GitHub's rules for multi-line comments.

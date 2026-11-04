@@ -1,5 +1,5 @@
 //! The file tree column: "Summary" row, filter box, the tree (with the "Review first"
-//! section), and the "N / M files viewed" footer. Port of `FileTreeView.swift`.
+//! section). Port of `FileTreeView.swift`.
 //!
 //! Rows are painted directly (no child widgets) and only the visible ones are drawn, so
 //! PRs with thousands of files stay cheap.
@@ -16,7 +16,6 @@ use crate::pr_store::PRStore;
 use crate::theme::Palette;
 
 const ROW_H: f32 = 24.0;
-const FOOTER_H: f32 = 30.0;
 
 #[derive(Default)]
 pub struct FileTreeState {
@@ -63,15 +62,14 @@ pub fn file_tree(ui: &mut egui::Ui, store: &mut PRStore, state: &mut FileTreeSta
 
     rebuild_rows(store, state);
 
-    let list_h = (ui.available_height() - FOOTER_H).max(ROW_H);
+    // Review progress lives in the status bar.
+    let list_h = ui.available_height().max(ROW_H);
     let mut actions: Vec<Action> = vec![];
     egui::Frame::new().show(ui, |ui| {
         ui.set_height(list_h);
         file_list(ui, store, state, &p, list_h, &mut actions);
     });
 
-    ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, p.border));
-    footer(ui, store, &p);
 
     for a in actions {
         match a {
@@ -123,14 +121,10 @@ fn overview_row(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
 
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::click());
     let painter = ui.painter();
-    let radius = CornerRadius::same(6);
-    painter.rect_filled(rect, radius, p.canvas);
-    if active {
-        painter.rect_filled(rect, radius, p.accent.gamma_multiply(0.18));
-    } else if resp.hovered() {
-        painter.rect_filled(rect, radius, p.subtle);
-    }
-    painter.rect_stroke(rect, radius, Stroke::new(1.0, if active { p.accent } else { p.border }), StrokeKind::Inside);
+    let radius = CornerRadius::same(p.radius);
+    let fill = if active { p.active } else if resp.hovered() { p.hover } else { p.subtle };
+    painter.rect_filled(rect, radius, fill);
+    painter.rect_stroke(rect, radius, Stroke::new(1.0, if active { p.focus_border } else { p.muted_border }), StrokeKind::Inside);
 
     let fg = if active { p.text } else { p.muted_text };
     let font = FontId::proportional(13.0);
@@ -171,8 +165,8 @@ fn overview_row(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
 fn filter_box(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
     egui::Frame::new()
         .fill(p.canvas)
-        .stroke(Stroke::new(1.0, p.border))
-        .corner_radius(CornerRadius::same(6))
+        .stroke(Stroke::new(1.0, p.muted_border))
+        .corner_radius(CornerRadius::same(p.radius))
         .inner_margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -258,13 +252,11 @@ fn row(
     let resp = ui.interact(rect, id, Sense::click());
     let painter = ui.painter().clone();
 
-    // GitHub-style selection: a soft accent rounded rect with a bar on the left.
+    // Zed-style list rows: a flat fill for the selected and hovered entry.
     if selected {
-        painter.rect_filled(rect.shrink2(Vec2::new(6.0, 1.0)), CornerRadius::same(6), p.accent.gamma_multiply(0.14));
-        let bar = Rect::from_min_size(Pos2::new(rect.left() + 6.0, rect.top() + 5.0), Vec2::new(3.0, ROW_H - 10.0));
-        painter.rect_filled(bar, CornerRadius::same(2), p.accent);
+        painter.rect_filled(rect.shrink2(Vec2::new(4.0, 0.0)), CornerRadius::same(p.radius), p.active);
     } else if resp.hovered() {
-        painter.rect_filled(rect.shrink2(Vec2::new(6.0, 1.0)), CornerRadius::same(6), p.subtle);
+        painter.rect_filled(rect.shrink2(Vec2::new(4.0, 0.0)), CornerRadius::same(p.radius), p.hover);
     }
 
     if r.is_folder {
@@ -378,26 +370,6 @@ fn context_menu(ui: &mut Ui, store: &PRStore, fi: usize, path: &str, viewed: boo
 
 // MARK: - Footer
 
-fn footer(ui: &mut Ui, store: &PRStore, p: &Palette) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), FOOTER_H), Sense::hover());
-    let painter = ui.painter();
-    let total = store.files().len();
-    let viewed = store.viewed_count();
-    let mid = rect.center().y;
-    painter.text(
-        Pos2::new(rect.left() + 10.0, mid),
-        Align2::LEFT_CENTER,
-        format!("{viewed} / {total} files viewed"),
-        FontId::proportional(12.0),
-        p.muted_text,
-    );
-    let bar = Rect::from_min_size(Pos2::new(rect.right() - 70.0, mid - 2.0), Vec2::new(60.0, 4.0));
-    painter.rect_filled(bar, CornerRadius::same(2), p.border);
-    let frac = viewed as f32 / total.max(1) as f32;
-    if frac > 0.0 {
-        painter.rect_filled(Rect::from_min_size(bar.min, Vec2::new(bar.width() * frac, bar.height())), CornerRadius::same(2), p.accent);
-    }
-}
 
 // MARK: - Helpers
 

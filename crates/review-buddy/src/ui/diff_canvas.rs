@@ -1019,7 +1019,7 @@ fn selection_bar(ui: &mut Ui, store: &mut PRStore, cs: &CanvasState, geo: &Geo, 
     }
     let count = (sel.end - sel.start).abs() + 1;
     let p = Palette::current(ui.ctx());
-    egui::Area::new(ui.id().with("selection_bar")).order(egui::Order::Foreground).fixed_pos(pos).show(ui.ctx(), |ui| {
+    egui::Area::new(ui.id().with("selection_bar")).order(egui::Order::Foreground).fade_in(false).fixed_pos(pos).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).corner_radius(8).inner_margin(egui::Margin::same(5)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 if super::common::gh_button(ui, "💬 Comment", super::common::BtnKind::Primary, true).on_hover_text("Comment (C)").clicked() {

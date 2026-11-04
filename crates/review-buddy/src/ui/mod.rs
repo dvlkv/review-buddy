@@ -227,15 +227,30 @@ impl ReviewBuddyApp {
         egui::Panel::bottom("status").exact_size(28.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(6, 0))).show(ui, |ui| {
             self.status_bar(ui);
         });
-        if self.state.ui.show_sidebar {
-            egui::Panel::left("inbox").resizable(true).default_size(280.0).size_range(220.0..=420.0).show(ui, |ui| {
+        // Side panels never squeeze the diff below CENTRAL_MIN (overlapping panels put one
+        // panel's scroll bar under another's resize handle). Each panel's maximum width
+        // leaves room for the panels still to come; if even their minimums don't fit, the
+        // inbox steps aside until the window is wider.
+        const CENTRAL_MIN: f32 = 320.0;
+        const INBOX: (f32, f32) = (220.0, 420.0);
+        const FILES: (f32, f32) = (180.0, 420.0);
+        const DISCUSS: (f32, f32) = (300.0, 640.0);
+        let current = self.state.current.clone();
+        let show_files = current.as_ref().is_some_and(|r| self.state.prs.get(r).is_some_and(|s| s.diff.is_some()));
+        let show_discuss = self.state.ui.show_discuss_panel;
+        let later = |files: bool, discuss: bool| (if files { FILES.0 } else { 0.0 }) + (if discuss { DISCUSS.0 } else { 0.0 }) + CENTRAL_MIN;
+        let max_for = |ui: &egui::Ui, (min, max): (f32, f32), after: f32| (ui.available_width() - after).clamp(min, max);
+        let show_inbox = self.state.ui.show_sidebar && ui.available_width() >= INBOX.0 + later(show_files, show_discuss);
+        if show_inbox {
+            let max = max_for(ui, INBOX, later(show_files, show_discuss));
+            egui::Panel::left("inbox").resizable(true).default_size(280.0f32.min(max)).size_range(INBOX.0..=max).show(ui, |ui| {
                 sidebar::sidebar(ui, &mut self.state);
             });
         }
-        let current = self.state.current.clone();
         if let Some(r) = &current {
-            if self.state.prs.get(r).map(|s| s.diff.is_some()).unwrap_or(false) {
-                egui::Panel::left("files").resizable(true).default_size(250.0).size_range(180.0..=420.0).show(ui, |ui| {
+            if show_files {
+                let max = max_for(ui, FILES, later(false, show_discuss));
+                egui::Panel::left("files").resizable(true).default_size(250.0f32.min(max)).size_range(FILES.0..=max).show(ui, |ui| {
                     let tree = self.view.trees.entry(r.clone()).or_default();
                     if let Some(s) = self.state.prs.get_mut(r) {
                         file_tree_view::file_tree(ui, s, tree);
@@ -243,8 +258,9 @@ impl ReviewBuddyApp {
                 });
             }
         }
-        if self.state.ui.show_discuss_panel {
-            egui::Panel::right("discuss").resizable(true).default_size(380.0).size_range(300.0..=640.0).show(ui, |ui| {
+        if show_discuss {
+            let max = max_for(ui, DISCUSS, CENTRAL_MIN);
+            egui::Panel::right("discuss").resizable(true).default_size(380.0f32.min(max)).size_range(DISCUSS.0..=max).show(ui, |ui| {
                 match current.as_ref().and_then(|r| self.state.prs.get_mut(r)) {
                     Some(s) => discuss_panel::discuss_panel(ui, s, &mut self.view.discuss),
                     None => {

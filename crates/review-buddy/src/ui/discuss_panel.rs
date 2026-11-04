@@ -153,18 +153,20 @@ fn conversation(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState,
     let mut intent: Option<Intent> = None;
 
     // Anchor header.
-    egui::Panel::top(egui::Id::new("discuss-anchor"))
+    let top = egui::Panel::top(egui::Id::new("discuss-anchor"))
         .frame(egui::Frame::new().fill(p.canvas))
         .resizable(false)
         .show_separator_line(true)
         .show(ui, |ui| anchor_header(ui, store, &thread, &mut intent, p));
+    super::common::settle_panel(ui, ("discuss-anchor", id), &top.response);
 
     // Actions, fix commits and input box.
-    egui::Panel::bottom(egui::Id::new("discuss-input"))
+    let bottom = egui::Panel::bottom(egui::Id::new("discuss-input"))
         .frame(egui::Frame::new().fill(p.canvas))
         .resizable(false)
         .show_separator_line(true)
         .show(ui, |ui| bottom_area(ui, store, state, &thread, &mut intent, p));
+    super::common::settle_panel(ui, ("discuss-input", id), &bottom.response);
 
     // Transcript.
     egui::CentralPanel::default().frame(egui::Frame::new().fill(p.canvas)).show(ui, |ui| {

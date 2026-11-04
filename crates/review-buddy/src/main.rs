@@ -20,7 +20,7 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Review Buddy")
             .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([900.0, 560.0]),
+            .with_min_inner_size([960.0, 600.0]),
         ..Default::default()
     };
     eframe::run_native("Review Buddy", options, Box::new(move |cc| Ok(Box::new(ui::ReviewBuddyApp::new(cc, args)))))

@@ -2,7 +2,8 @@
 //! presses it, or when the window simply renders again.
 //!
 //! The whole app runs headless on the synthetic PR. For each screen (diff, split, composer,
-//! threads, Discuss, Summary, merge box, settings tabs, sheets) and each theme:
+//! threads, Discuss, Summary, merge box, settings tabs, sheets, narrow window) and each
+//! theme:
 //! 1. rerender: idle frames must be identical, and take one layout pass;
 //! 2. first frame: content that appears after a state change must not shift a frame later;
 //! 3. hover: the pointer on each interactive widget (and on a grid over the window) must
@@ -10,6 +11,7 @@
 //! 4. press: holding the button down must not either;
 //! 5. click: a widget must keep its own size after it's clicked (toggles, tabs, buttons
 //!    that start work), unless listed in `CLICK_MAY_RESIZE`.
+//!
 //! "Anything" is every AccessKit node (widgets and Ui containers, with bounds) and every
 //! painted text run (position and size), so custom-painted canvases are covered too.
 
@@ -139,6 +141,8 @@ enum Step {
     /// Click the first widget with this label.
     Click(&'static str),
     Do(fn(&mut ReviewBuddyApp)),
+    /// Window size for the rest of the scenario.
+    Screen(f32, f32),
 }
 
 impl Step {
@@ -147,6 +151,7 @@ impl Step {
             Step::Cmd(c) => format!("`{c}`"),
             Step::Click(l) => format!("click {l:?}"),
             Step::Do(_) => "state change".into(),
+            Step::Screen(w, h) => format!("resize to {w}x{h}"),
         }
     }
 }
@@ -156,6 +161,7 @@ struct Harness {
     app: ReviewBuddyApp,
     time: f64,
     pointer: Option<Pos2>,
+    screen: Vec2,
     /// What moved between the first and second frame after each step: content that
     /// shows up at one size and corrects itself a frame later (a visible flicker).
     first_frame_jumps: Vec<String>,
@@ -169,7 +175,7 @@ impl Harness {
         // Tooltips never show during the sweep (they're overlays; they can't shift layout).
         ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 1.0e6);
         let app = ReviewBuddyApp::headless(&ctx, DiffShape::SMALL);
-        let mut h = Harness { ctx, app, time: 0.0, pointer: None, first_frame_jumps: vec![] };
+        let mut h = Harness { ctx, app, time: 0.0, pointer: None, screen: SCREEN, first_frame_jumps: vec![] };
         h.settle();
         for step in steps {
             match *step {
@@ -194,6 +200,7 @@ impl Harness {
                     h.frame(vec![action(Action::Click, id)]);
                 }
                 Step::Do(f) => f(&mut h.app),
+                Step::Screen(w, hh) => h.screen = Vec2::new(w, hh),
             }
             // Painted text only: windows and popups lay out in an invisible first pass
             // whose widget rects aren't shown.
@@ -210,7 +217,7 @@ impl Harness {
     fn frame(&mut self, events: Vec<Event>) -> Snap {
         self.time += DT;
         let mut input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.screen)),
             time: Some(self.time),
             predicted_dt: DT as f32,
             focused: true,
@@ -270,10 +277,10 @@ fn center(r: &Q) -> Pos2 {
     Pos2::new((r[0] as i64 + r[2] as i64) as f32 / 200.0, (r[1] as i64 + r[3] as i64) as f32 / 200.0)
 }
 
-fn on_screen(r: &Q) -> bool {
+fn on_screen(r: &Q, screen: Vec2) -> bool {
     let c = center(r);
     let (w, h) = size(r);
-    w > 0.5 && h > 0.5 && c.x > 1.0 && c.y > 1.0 && c.x < SCREEN.x - 1.0 && c.y < SCREEN.y - 1.0
+    w > 0.5 && h > 0.5 && c.x > 1.0 && c.y > 1.0 && c.x < screen.x - 1.0 && c.y < screen.y - 1.0
 }
 
 /// Widgets whose own size may change when clicked: their label says something different
@@ -352,7 +359,7 @@ fn sweep_view(name: &str, steps: &[Step], scroll: Option<NodeId>, dark: bool, pr
         }
     }
     let mut targets: Vec<(NodeId, NodeInfo)> =
-        base.nodes.iter().filter(|(i, n)| n.clickable && n.role != Role::ScrollBar && on_screen(&n.rect) && !probed.contains(*i)).map(|(i, n)| (*i, n.clone())).collect();
+        base.nodes.iter().filter(|(i, n)| n.clickable && n.role != Role::ScrollBar && on_screen(&n.rect, h.screen) && !probed.contains(*i)).map(|(i, n)| (*i, n.clone())).collect();
     targets.sort_by_key(|(_, n)| (n.rect[1], n.rect[0]));
     probed.extend(targets.iter().map(|(i, _)| *i));
     let mut points: Vec<(String, Option<NodeId>, Pos2)> = targets.iter().map(|(i, n)| (format!("{:?} {:?} {}", n.role, n.label, fmt_q(&n.rect)), Some(*i), center(&n.rect))).collect();
@@ -365,10 +372,11 @@ fn sweep_view(name: &str, steps: &[Step], scroll: Option<NodeId>, dark: bool, pr
         .map(|n| Rect::from_min_max(Pos2::new(n.rect[0] as f32 / 100.0, n.rect[1] as f32 / 100.0), Pos2::new(n.rect[2] as f32 / 100.0, n.rect[3] as f32 / 100.0)).expand(4.0))
         .collect();
     if scroll.is_none() && !report.quick {
+        let screen = h.screen;
         let mut y = 20.0;
-        while y < SCREEN.y {
+        while y < screen.y {
             let mut x = 20.0;
-            while x < SCREEN.x {
+            while x < screen.x {
                 if !bars.iter().any(|b| b.contains(Pos2::new(x, y))) {
                     points.push((format!("grid ({x},{y})"), None, Pos2::new(x, y)));
                 }
@@ -445,6 +453,14 @@ fn scenarios() -> Vec<(&'static str, Vec<Step>)> {
         ("push", vec![Do(|a| a.state.ui.show_push_sheet = true)]),
         ("no-pr", vec![Do(|a| a.state.current = None)]),
         ("no-sidebar", vec![Cmd("sidebar:off")]),
+        ("narrow", vec![Screen(960.0, 640.0)]),
+        ("narrow-discuss", vec![Screen(960.0, 640.0), Cmd("demodiscuss")]),
+        ("narrow-overview", vec![Screen(960.0, 640.0), Cmd("overview")]),
+        ("split-composer", vec![Cmd("split"), Cmd("selectfirst"), Cmd("comment")]),
+        ("split-discuss", vec![Cmd("split"), Cmd("demodiscuss")]),
+        ("discuss-inactive", vec![Cmd("demodiscuss"), Do(|a| a.state.current_pr_mut().unwrap().active_discuss_id = None)]),
+        ("submit-pending", vec![Cmd("selectfirst"), Cmd("comment"), Cmd("typecomment:Off by one?"), Cmd("submit")]),
+        ("summary-expanded", vec![Cmd("fakesummary:8"), Click("Show more")]),
     ]
 }
 

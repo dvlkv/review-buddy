@@ -235,7 +235,7 @@ fn state_badge(ui: &mut Ui, d: &PRDetail, p: &Palette) {
         _ if d.is_draft => ("Draft", p.muted_text),
         _ => ("Open", p.success),
     };
-    pill(ui, text, color, true);
+    pill(ui, text, color, false);
 }
 
 /// "New commits were pushed" with a Refresh button.
