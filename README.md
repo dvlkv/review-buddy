@@ -5,7 +5,7 @@
 <h1 align="center">Review Buddy</h1>
 
 <p align="center">
-  A native macOS app for reviewing GitHub pull requests, with Claude as your review partner.<br>
+  A fast desktop app for reviewing GitHub pull requests, with Claude as your review partner.<br>
   <a href="https://github.com/dvlkv/review-buddy/releases/latest"><b>Download the latest release</b></a>
 </p>
 
@@ -13,8 +13,8 @@
   <img src="docs/screenshots/discuss.png" alt="Review Buddy: diff, AI summary and a Discuss conversation with Claude">
 </p>
 
-Review Buddy looks and works like GitHub's "Files changed" tab, but it's a fast native app,
-and it has Claude built in. Select some code and either **Comment** (a normal GitHub review
+Review Buddy looks and works like GitHub's "Files changed" tab, but it's a fast native app
+(written in Rust, drawn with egui on the GPU), and it has Claude built in. Select some code and either **Comment** (a normal GitHub review
 comment) or **Discuss** it privately with a Claude agent that has the PR checked out. The agent
 can read the rest of the codebase, answer questions, and fix the code for you.
 
@@ -24,7 +24,8 @@ can read the rest of the codebase, answer questions, and fix the code for you.
 
 - Unified and split views, syntax highlighting, and expandable context.
 - A file tree, "Viewed" checkboxes that sync with GitHub, and collapsible files.
-- Diffs with thousands of files scroll smoothly: the diff is drawn natively, not in a web view.
+- Diffs with thousands of files scroll smoothly: the diff is drawn natively, not in a web view
+  (see [PERF.md](PERF.md)).
 - Large PRs that GitHub won't send as one diff are built from a local checkout instead.
 
 ![Split view in dark mode](docs/screenshots/split.png)
@@ -94,7 +95,7 @@ The **Summary** row above the file tree opens the PR's overview, like GitHub's C
 
 ### Requirements
 
-- macOS 26 on Apple silicon.
+- macOS on Apple silicon (Keychain, notifications and tool lookup are macOS-specific).
 - [GitHub CLI](https://cli.github.com), signed in with `gh auth login`. Alternatively, enter a
   personal access token in Settings.
 - [Claude Code](https://claude.com/claude-code) (`claude`) for Discuss, the AI summary and the
@@ -117,36 +118,47 @@ GitHub and to the `claude` process on your Mac.
 
 ## Build from source
 
-Requires Xcode 26 (Swift 6.2 or later).
+Requires a Rust toolchain, 1.92 or later (`rustup update`).
 
 ```sh
 Scripts/bundle.sh release            # → build/ReviewBuddy.app
 open build/ReviewBuddy.app
 open build/ReviewBuddy.app --args --open https://github.com/owner/repo/pull/123
+cargo run --release -- --open owner/repo#123   # or straight from the workspace
 ```
 
 Try it without a GitHub account or network, using a generated in-memory PR:
 
 ```sh
-build/ReviewBuddy.app/Contents/MacOS/ReviewBuddy --synthetic small   # or large / huge (2,000 files)
+cargo run --release -- --synthetic small   # or large / huge (2,000 files)
 ```
 
 Run the tests:
 
 ```sh
-swift test                                    # Core + UI tests
-swift test -c release -Xswiftc -enable-testing  # also in release mode
-Scripts/perf-check.sh                         # scripted UI performance run against budgets
+cargo test --workspace         # core + app (store) tests
+Scripts/perf-check.sh          # scripted UI performance run against budgets
+
+# Layout stability sweep (~8 min): every screen, both themes; fails if anything moves
+# or changes size on rerender, on the first frame after a change, on hover, press or click.
+cargo test --release -p review-buddy layout_sweep -- --ignored --nocapture
+SWEEP_ONLY=discuss,composer cargo test --release -p review-buddy layout_sweep -- --ignored --nocapture
 ```
 
-The app icon is drawn by `Scripts/make-icon.swift`, which writes `Resources/AppIcon.icns`.
+Scripted UI checks render PNGs without screen-recording permission:
+
+```sh
+cargo run -- --synthetic small --snap-dir /tmp/rb \
+  --ui-script "selectfirst;comment;typecomment:Hello;snap:comment;split;snap:split;quit"
+```
+
+The app icon is drawn by `Scripts/make-icon.swift`, which writes `Resources/AppIcon.icns`
+(a one-off asset tool; the `.icns` is committed, so building the app doesn't need Swift).
 
 ## Project layout
 
-- `Sources/ReviewBuddyCore`: diff parsing and layout, syntax highlighting, the GitHub client,
-  git worktrees, the Claude stream-json session, and persistence. No AppKit.
-- `Sources/ReviewBuddyUI`: the stores (`PRStore`, `DiscussController`, `InboxStore`), the diff
-  canvas, and the SwiftUI views.
-- `Sources/ReviewBuddy`: the app entry point.
-
-See [SPEC.md](SPEC.md) for the design and [PERF.md](PERF.md) for the performance work.
+- `crates/review-buddy-core`: diff parsing and layout, syntax highlighting, the GitHub client,
+  git worktrees, the Claude stream-json session, Markdown parsing, and persistence. No GUI code.
+- `crates/review-buddy`: the app. `pr_store.rs` / `pr_store_ai.rs` (state and actions for one
+  PR), `discuss.rs` (a Claude conversation), `app.rs` (inbox and open PRs), and `ui/` (the egui
+  views, including the virtualized diff canvas in `ui/diff_canvas.rs`).

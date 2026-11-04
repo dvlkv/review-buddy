@@ -3,8 +3,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
-swift build -c "$CONFIG" --product ReviewBuddy
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/ReviewBuddy"
+if [ "$CONFIG" = "release" ]; then
+  cargo build --release -p review-buddy
+  BIN="target/release/review-buddy"
+else
+  cargo build -p review-buddy
+  BIN="target/debug/review-buddy"
+fi
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 APP="build/ReviewBuddy.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -21,9 +27,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>ReviewBuddy</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleShortVersionString</key><string>0.2.0</string>
-  <key>CFBundleVersion</key><string>2</string>
-  <key>LSMinimumSystemVersion</key><string>26.0</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>3</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>

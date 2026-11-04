@@ -1,14 +1,14 @@
 #!/bin/zsh
 # Runs the scripted performance pass on a synthetic PR and checks budgets.
 #   Scripts/perf-check.sh [small|large|huge]    (default: huge = 2,000 files / 200k lines)
-# Requires a release bundle (Scripts/bundle.sh release). Exits 1 on a budget miss.
+# Builds the release binary if needed. Exits 1 on a budget miss.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SIZE="${1:-huge}"
 OUT="$(mktemp -d)/perf.json"
-APP="build/ReviewBuddy.app/Contents/MacOS/ReviewBuddy"
-[ -x "$APP" ] || Scripts/bundle.sh release >/dev/null
-"$APP" --synthetic "$SIZE" --perf-run "$OUT" --perf-quit >/dev/null 2>&1
+APP="target/release/review-buddy"
+cargo build --release -p review-buddy >/dev/null 2>&1
+"$APP" --synthetic "$SIZE" --perf-run "$OUT" >/dev/null 2>&1
 python3 - "$OUT" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))

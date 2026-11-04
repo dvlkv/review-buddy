@@ -1,15 +1,15 @@
 # Review Buddy — Spec
 
-A native macOS app for reviewing GitHub pull requests. It looks and behaves like GitHub's "Files changed" review UI, with one addition: when you select lines you can either **Comment** (a normal GitHub review comment) or **Discuss** (a private conversation with a Claude agent that can see the code and fix it).
+A native desktop app (macOS first) for reviewing GitHub pull requests. It looks and behaves like GitHub's "Files changed" review UI, with one addition: when you select lines you can either **Comment** (a normal GitHub review comment) or **Discuss** (a private conversation with a Claude agent that can see the code and fix it).
 
 ## 1. Decisions
 
 | Area | Decision |
 |---|---|
-| Platform | Native Swift, SwiftUI app shell, **macOS 26+** |
-| Diff rendering | Fully native: a custom virtualized AppKit canvas (bitmap tiles + prefix-sum row index) hosted in SwiftUI, styled like GitHub. Inline threads/composers are SwiftUI views placed only near the viewport. See PERF.md |
+| Platform | Rust, egui/eframe app shell (GPU-drawn, no web view), macOS on Apple silicon |
+| Diff rendering | A custom virtualized egui canvas (prefix-sum row index, only visible rows painted), styled like GitHub. Inline threads/composers are egui widgets placed only near the viewport. See PERF.md |
 | GitHub API | GraphQL for reviews, threads, viewed state and search; REST `.diff` for the PR diff, falling back to `git diff` in the local checkout when GitHub refuses (too large) |
-| Auth | Token from `gh auth token`; a PAT stored in Keychain as fallback |
+| Auth | Token from `gh auth token`; a PAT stored in the login Keychain (via `security`) as fallback |
 | AI engine | `claude` CLI started as a subprocess, with streaming JSON in and out (the same engine as the Agent SDK) |
 | AI permissions | Full access (`bypassPermissions`), always run inside a worktree for the PR |
 | Code on disk | Per repo: your mapped local clone if there is one, otherwise a managed clone. Always a separate worktree per PR |
@@ -57,7 +57,7 @@ A native macOS app for reviewing GitHub pull requests. It looks and behaves like
 - **Split / unified** toggle, remembered per user. In split mode, deletions and additions are lined up within each change block, like GitHub does.
 - Large files (>2,000 changed lines) and generated or binary files are collapsed by default with "Load diff".
 - "Expand context" (↑/↓ arrows on hunk headers) loads lines from the file contents.
-- Colors and spacing follow GitHub's Primer tokens and adapt to light and dark mode.
+- Colors follow Zed's One Dark / One Light themes; the look is Zed-like: flat surfaces, hairline borders, small radii, tinted buttons, a title bar and a status bar with the panel toggles. Nothing changes size on hover, press or rerender (checked by the layout sweep test).
 
 ### 3.2 Selecting lines
 - Click a line's gutter to select it; drag or Shift-click to select a range. A selection stays on one side (old or new), matching GitHub's rules for multi-line comments.
@@ -164,29 +164,30 @@ The full PR diff is **not** included. The agent can run `git diff <base>...HEAD`
 ## 8. Architecture
 
 ```
-ReviewBuddy (SwiftUI App)
-├── App/            Window scenes, commands, settings
-├── Features/
-│   ├── Inbox/      Sidebar lists, search queries, refresh
-│   ├── PR/         PR header, summary card, review submit popover
-│   ├── Diff/       Canvas diff (tiles, sticky header, inline SwiftUI blocks), selection, composer, threads
-│   ├── Discuss/    Side panel, event stream rendering, actions
-│   └── PreReview/  Findings model and inline rendering
-├── Services/
-│   ├── GitHub/     GraphQL + REST client (URLSession, async/await), auth via gh
-│   ├── Git/        Worktree manager (shells out to git), push
-│   ├── Claude/     ClaudeSession: Process + stream-json encoder/decoder
-│   ├── Diff/       Unified diff parser, split alignment, anchor remapping
-│   └── Highlight/  Built-in lexer + language table; Primer colors in the UI theme
-└── Persistence/    JSON LocalStore (AppSettings, PRLocalState: Discuss threads, fix requests, findings, summary)
+crates/review-buddy-core (library, no GUI)
+├── diff/        Unified diff parser, DiffLayout row model, split alignment, intraline diff, anchor remapping
+├── highlight/   Built-in lexer + language table
+├── github/      GraphQL + REST client (blocking, behind an HTTP transport trait), auth via gh / Keychain
+├── git/         ProcessRunner, worktree manager, push
+├── claude/      ClaudeSession (stream-json subprocess), transcript reducer, prompts, one-shot runs
+├── review/      Markdown parser, key bindings, fuzzy matching
+└── persistence  JSON LocalStore (AppSettings, PRLocalState), atomic debounced writes
+
+crates/review-buddy (eframe app)
+├── app.rs       AppState: services, inbox, open PRs
+├── pr_store*.rs PRStore: one per open PR (diff, threads, composers, Discuss, AI, git)
+├── discuss.rs   DiscussController: one per Discuss thread
+├── rt.rs        Spawner: blocking work on worker threads, results applied on the UI thread as jobs
+└── ui/          Window, toolbar, sheets, inbox, file tree, diff canvas, inline blocks, Discuss panel,
+                 Summary screen, settings, scripted UI driver and perf runner
 ```
-- State is managed with `@Observable` models, one `PRStore` per open PR.
-- All subprocesses go through one `ProcessRunner` (async, cancellable, captures stderr for errors).
-- GraphQL queries are hand-written `.graphql` strings with `Codable` response types; we'll consider codegen later.
+- State lives in plain structs owned by the UI thread; egui redraws from them every frame.
+- All subprocesses go through one `ProcessRunner` (captures stderr for errors).
+- GraphQL queries are hand-written strings with serde response types.
 
 ## 9. Milestones
 
-1. **M0, scaffold:** Xcode project, app shell with three columns, `gh auth token` auth, Settings window.
+1. **M0, scaffold:** app shell with three columns, `gh auth token` auth, Settings window.
 2. **M1, inbox + read-only diff:** the three inbox sections plus open by URL; file tree; unified diff with syntax highlighting; navigation shortcuts.
 3. **M2, review threads + pending review:** inline threads (read, reply, resolve), the Comment composer, pending review, submit.
 4. **M3, GitHub feature parity:** split view, Viewed syncing, suggestion blocks and their preview, expand context, command palette.
