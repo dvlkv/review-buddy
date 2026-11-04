@@ -40,6 +40,17 @@ pub struct CanvasState {
     force_scroll: Option<f32>,
 }
 
+impl CanvasState {
+    /// Scrolls by `dy` points on the next frame (perf runs, scripts).
+    pub fn scroll_by(&mut self, dy: f32) {
+        let max = (self.offsets.last().copied().unwrap_or(0.0) - 600.0).max(0.0);
+        self.force_scroll = Some((self.scroll_y + dy).clamp(0.0, max));
+    }
+    pub fn scroll_y(&self) -> f32 {
+        self.scroll_y
+    }
+}
+
 #[derive(Clone, Copy)]
 struct DragAnchor {
     file: usize,

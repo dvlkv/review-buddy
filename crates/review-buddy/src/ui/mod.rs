@@ -8,6 +8,7 @@ pub mod file_tree_view;
 pub mod header;
 pub mod markdown;
 pub mod overview;
+pub mod script;
 pub mod settings;
 pub mod sidebar;
 
@@ -51,6 +52,7 @@ pub struct ReviewBuddyApp {
     jobs: Receiver<Job>,
     metrics: Option<DiffMetrics>,
     snapshot: Option<(String, u32)>,
+    script: Option<script::ScriptRunner>,
     was_focused: bool,
 }
 
@@ -89,7 +91,15 @@ impl ReviewBuddyApp {
         }
         // `--snapshot <path>`: save a PNG of the window after it settles, then quit (for checks).
         let snapshot = arg("--snapshot").map(|p| (p, 0));
-        ReviewBuddyApp { state, view: ViewState::default(), jobs, metrics: None, snapshot, was_focused: true }
+        let script = if let Some(out) = arg("--perf-run") {
+            Some(script::ScriptRunner::perf(out.into(), arg("--perf-only").as_deref()))
+        } else {
+            arg("--ui-script").map(|s| script::ScriptRunner::script(&s, arg("--snap-dir").map(Into::into).unwrap_or_else(std::env::temp_dir)))
+        };
+        if script.is_some() {
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(1600.0, 1000.0)));
+        }
+        ReviewBuddyApp { state, view: ViewState::default(), jobs, metrics: None, snapshot, script, was_focused: true }
     }
 
     fn drain_jobs(&mut self) {
@@ -133,7 +143,9 @@ fn install_fonts(ctx: &egui::Context) {
 
 impl eframe::App for ReviewBuddyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let frame_start = std::time::Instant::now();
         self.drain_jobs();
+        self.drive_script(&ui.ctx().clone());
         self.state.tick();
         let ctx = ui.ctx().clone();
         let font_size = self.state.services.settings().font_size as f32;
@@ -189,6 +201,9 @@ impl eframe::App for ReviewBuddyApp {
         });
         self.sheets(&ctx);
         self.take_snapshot(&ctx);
+        if let Some(r) = &mut self.script {
+            r.record_frame(frame_start.elapsed().as_secs_f64() * 1000.0);
+        }
     }
 
     fn on_exit(&mut self) {
@@ -731,7 +746,7 @@ fn key_name(k: Key) -> Option<String> {
     })
 }
 
-fn save_png(path: &str, img: &egui::ColorImage) -> std::io::Result<()> {
+pub(crate) fn save_png(path: &str, img: &egui::ColorImage) -> std::io::Result<()> {
     let file = std::fs::File::create(path)?;
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), img.size[0] as u32, img.size[1] as u32);
     enc.set_color(png::ColorType::Rgba);
