@@ -102,7 +102,7 @@ impl Palette {
     }
 
     pub fn current(ctx: &egui::Context) -> Palette {
-        Palette::new(ctx.style().visuals.dark_mode)
+        Palette::new(ctx.global_style().visuals.dark_mode)
     }
 }
 

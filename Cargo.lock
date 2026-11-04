@@ -2694,9 +2694,12 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 name = "review-buddy"
 version = "0.3.0"
 dependencies = [
+ "chrono",
  "eframe",
  "egui",
+ "png",
  "review_buddy_core",
+ "serde_json",
 ]
 
 [[package]]
