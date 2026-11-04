@@ -5,3 +5,4 @@ build/
 DerivedData/
 .DS_Store
 .build-tests/
+/target

@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/review-buddy-core", "crates/review-buddy"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
