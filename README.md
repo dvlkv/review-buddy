@@ -95,8 +95,7 @@ The **Summary** row above the file tree opens the PR's overview, like GitHub's C
 
 ### Requirements
 
-- macOS on Apple silicon (the app is plain Rust + egui, so Intel Macs and Linux build too, but
-  releases target Apple silicon).
+- macOS on Apple silicon (Keychain, notifications and tool lookup are macOS-specific).
 - [GitHub CLI](https://cli.github.com), signed in with `gh auth login`. Alternatively, enter a
   personal access token in Settings.
 - [Claude Code](https://claude.com/claude-code) (`claude`) for Discuss, the AI summary and the
