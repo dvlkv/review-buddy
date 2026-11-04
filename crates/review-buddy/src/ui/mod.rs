@@ -62,10 +62,7 @@ impl ReviewBuddyApp {
     pub fn new(cc: &eframe::CreationContext<'_>, args: Vec<String>) -> Self {
         let ctx = cc.egui_ctx.clone();
         install_fonts(&ctx);
-        ctx.global_style_mut(|s| {
-            s.spacing.item_spacing = egui::vec2(6.0, 4.0);
-            s.spacing.button_padding = egui::vec2(8.0, 3.0);
-        });
+        install_style(&ctx);
         let (spawner, jobs) = Spawner::new(Some(ctx));
         let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
         let synthetic = args.iter().any(|a| a == "--synthetic");
@@ -111,6 +108,23 @@ impl ReviewBuddyApp {
     }
 }
 
+/// Spacing and widget tweaks, for both the light and the dark style.
+fn install_style(ctx: &egui::Context) {
+    ctx.all_styles_mut(|s| {
+        s.spacing.item_spacing = egui::vec2(6.0, 4.0);
+        s.spacing.button_padding = egui::vec2(8.0, 3.0);
+        // egui insets a button's content by its stroke width. Hovered and pressed buttons
+        // have a 1 px stroke, idle ones none, so buttons with their own stroke (or none)
+        // shrank by 2 px on hover. An invisible 1 px idle stroke keeps the size constant.
+        let w = &mut s.visuals.widgets;
+        for v in [&mut w.inactive, &mut w.noninteractive] {
+            if v.bg_stroke.width < 1.0 {
+                v.bg_stroke = egui::Stroke::new(1.0, egui::Color32::TRANSPARENT);
+            }
+        }
+    });
+}
+
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     // The system UI font and SF Mono, so text matches other macOS apps. Fallbacks come next
@@ -140,7 +154,7 @@ fn install_fonts(ctx: &egui::Context) {
         *list = first;
     }
     ctx.set_fonts(fonts);
-    ctx.global_style_mut(|s| {
+    ctx.all_styles_mut(|s| {
         use egui::{FontFamily::*, FontId, TextStyle};
         s.text_styles = [
             (TextStyle::Small, FontId::new(11.0, Proportional)),
@@ -767,4 +781,30 @@ pub(crate) fn save_png(path: &str, img: &egui::ColorImage) -> std::io::Result<()
     let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
     w.write_image_data(&bytes).map_err(std::io::Error::other)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod style_tests {
+    /// A button with its own stroke keeps its size when hovered.
+    #[test]
+    fn buttons_do_not_shrink_on_hover() {
+        let ctx = egui::Context::default();
+        super::install_style(&ctx);
+        let frame = |pos: Option<egui::Pos2>| {
+            let mut input = egui::RawInput::default();
+            if let Some(p) = pos {
+                input.events.push(egui::Event::PointerMoved(p));
+            }
+            let mut rect = egui::Rect::NOTHING;
+            let _ = ctx.run_ui(input, |ui| {
+                let b = egui::Button::new("Confirm squash and merge").fill(egui::Color32::GREEN).stroke(egui::Stroke::NONE);
+                rect = ui.add(b).rect;
+            });
+            rect
+        };
+        let idle = frame(None);
+        let _ = frame(Some(idle.center()));
+        let hovered = frame(Some(idle.center()));
+        assert_eq!(idle.size(), hovered.size());
+    }
 }

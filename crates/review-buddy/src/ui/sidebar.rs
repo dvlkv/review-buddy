@@ -24,7 +24,7 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
         .show_separator_line(true)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                let look = crate::ui::icons::Look { fill: Color32::TRANSPARENT, fg: p.accent, stroke: Color32::TRANSPARENT, native: false, frame: false };
+                let look = crate::ui::icons::Look { fill: Color32::TRANSPARENT, fg: p.accent, stroke: Color32::TRANSPARENT, native: false, frame: false, radius: egui::CornerRadius::same(6) };
                 let open = crate::ui::icons::button(ui, "🔗 Open PR…", FontId::proportional(13.0), look, 22.0, true)
                     .on_hover_text("Open a pull request by URL");
                 if open.clicked() {

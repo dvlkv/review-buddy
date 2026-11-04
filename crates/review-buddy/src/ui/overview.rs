@@ -860,7 +860,7 @@ fn merge_button(ui: &mut Ui, store: &PRStore, st: &PRMergeStatus, state: &mut Ov
             // One allowed method (repo setting): a plain button, as on GitHub.
             if split {
                 ui.add_space(1.0);
-                let r = filled_button(ui, "⏷", tint, enabled, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }).on_hover_text("Merge method");
+                let r = filled_button(ui, "▾", tint, enabled, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }).on_hover_text("Merge method");
                 egui::Popup::menu(&r).show(|ui| {
                     for m in &methods {
                         let label = format!("{} {}", if *m == method { "✔" } else { "   " }, m.title());
@@ -890,12 +890,8 @@ fn merge_button(ui: &mut Ui, store: &PRStore, st: &PRMergeStatus, state: &mut Ov
 }
 
 fn filled_button(ui: &mut Ui, text: &str, color: Color32, enabled: bool, radius: CornerRadius) -> egui::Response {
-    let btn = egui::Button::new(RichText::new(text).size(13.0).strong().color(Color32::WHITE))
-        .fill(if enabled { color } else { color.gamma_multiply(0.5) })
-        .stroke(Stroke::NONE)
-        .corner_radius(radius)
-        .min_size(Vec2::new(0.0, 28.0));
-    ui.add_enabled(enabled, btn)
+    let look = super::icons::Look { fill: color, fg: Color32::WHITE, stroke: Color32::TRANSPARENT, native: false, frame: true, radius };
+    super::icons::button(ui, text, egui::FontId::proportional(13.0), look, 28.0, enabled)
 }
 
 // MARK: - Comment box

@@ -267,6 +267,7 @@ pub struct Look {
     /// Use egui's widget visuals (hover/press backgrounds) instead of `fill`.
     pub native: bool,
     pub frame: bool,
+    pub radius: CornerRadius,
 }
 
 /// A button with optional icons around its text. Text like "✦ Discuss" or "Review ▾" is
@@ -300,7 +301,7 @@ pub fn button(ui: &mut Ui, text: &str, font: FontId, look: Look, min_h: f32, ena
             (f, Stroke::new(1.0, look.stroke))
         };
         let (fill, stroke) = if enabled { (fill, stroke) } else { (fill.gamma_multiply(0.55), Stroke::new(stroke.width, stroke.color.gamma_multiply(0.55))) };
-        ui.painter().rect(rect, CornerRadius::same(6), fill, stroke, egui::StrokeKind::Inside);
+        ui.painter().rect(rect, look.radius, fill, stroke, egui::StrokeKind::Inside);
     } else if hovered {
         if look.native {
             ui.painter().rect_filled(rect, CornerRadius::same(5), ui.visuals().widgets.hovered.weak_bg_fill);
@@ -324,7 +325,7 @@ pub fn button(ui: &mut Ui, text: &str, font: FontId, look: Look, min_h: f32, ena
 /// A toolbar button that looks like egui's own (`ui.button`), with icons.
 pub fn tool_button(ui: &mut Ui, text: &str) -> Response {
     let fg = ui.visuals().text_color();
-    let look = Look { fill: Color32::TRANSPARENT, fg, stroke: Color32::TRANSPARENT, native: true, frame: true };
+    let look = Look { fill: Color32::TRANSPARENT, fg, stroke: Color32::TRANSPARENT, native: true, frame: true, radius: CornerRadius::same(6) };
     button(ui, text, FontId::proportional(13.0), look, 24.0, true)
 }
 

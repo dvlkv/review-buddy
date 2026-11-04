@@ -28,7 +28,7 @@ pub fn gh_button(ui: &mut Ui, text: &str, kind: BtnKind, enabled: bool) -> Respo
         BtnKind::Danger => (p.subtle, p.del_marker, p.border),
         BtnKind::Invisible => (Color32::TRANSPARENT, p.accent, Color32::TRANSPARENT),
     };
-    let look = super::icons::Look { fill, fg, stroke, native: false, frame: kind != BtnKind::Invisible };
+    let look = super::icons::Look { fill, fg, stroke, native: false, frame: kind != BtnKind::Invisible, radius: egui::CornerRadius::same(6) };
     super::icons::button(ui, text, FontId::proportional(13.0), look, 26.0, enabled)
 }
 
