@@ -124,7 +124,7 @@ fn cell(ui: &mut Ui, text: &str, align: Option<TableAlignment>, size: f32, color
         Some(TableAlignment::Right) => egui::Layout::top_down(egui::Align::Max),
         _ => egui::Layout::top_down(egui::Align::Min),
     };
-    ui.with_layout(layout, |ui| inline(ui, text, size, color, bold));
+    ui.with_layout(layout, |ui| inline_wrap(ui, text, size, color, bold, false));
 }
 
 fn code_block(ui: &mut Ui, text: &str, lang: Option<&str>, p: &Palette) {
@@ -217,9 +217,14 @@ struct Style {
 /// Inline Markdown (`code`, **bold**, *italic*, ~~strike~~, [links](url), bare URLs) as one
 /// wrapped label; clicking a link opens it.
 pub fn inline(ui: &mut Ui, s: &str, size: f32, color: Color32, bold: bool) {
+    inline_wrap(ui, s, size, color, bold, true)
+}
+
+/// `inline`, optionally without wrapping (table cells scroll instead).
+pub fn inline_wrap(ui: &mut Ui, s: &str, size: f32, color: Color32, bold: bool, wrap: bool) {
     let p = pal(ui);
     let mut job = LayoutJob::default();
-    job.wrap.max_width = ui.available_width();
+    job.wrap.max_width = if wrap { ui.available_width() } else { f32::INFINITY };
     let mut links: Vec<(Range<usize>, String)> = vec![];
     let mut chars = 0usize;
     let base = Style { bold, ..Default::default() };
@@ -251,7 +256,11 @@ pub fn inline(ui: &mut Ui, s: &str, size: f32, color: Color32, bold: bool) {
         job.append(text, 0.0, f);
     };
     parse_inline(s, base, &mut |text, st, link| push(&mut job, text, st, link));
-    let (pos, galley, resp) = egui::Label::new(job).sense(Sense::click()).layout_in_ui(ui);
+    let mut label = egui::Label::new(job).sense(Sense::click());
+    if !wrap {
+        label = label.extend();
+    }
+    let (pos, galley, resp) = label.layout_in_ui(ui);
     let hovered_link = resp.hover_pos().and_then(|hp| {
         let c = galley.cursor_from_pos(hp - pos).index.0;
         links.iter().find(|(r, _)| r.contains(&c)).map(|(_, u)| u.clone())

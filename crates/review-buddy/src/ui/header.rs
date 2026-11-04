@@ -26,7 +26,7 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
     let mem_id = Id::new(("pr_header", store.pr_ref.to_string()));
     let mut mem: HeaderMem = ui.data(|m| m.get_temp(mem_id).unwrap_or_default());
     ui.add_space(10.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         state_badge(ui, &d, &p);
         avatar(ui, &d.author, 18.0);
@@ -39,7 +39,10 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
         ui.label(RichText::new(format!("−{}", d.deletions)).size(12.0).color(p.del_marker));
         let files = if d.changed_files == 1 { "1 file".to_string() } else { format!("{} files", d.changed_files) };
         ui.label(RichText::new(files).size(12.0).color(p.muted_text));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // Right-aligned when there's room; otherwise they wrap onto the next line.
+        let room = ui.available_width() > 260.0;
+        let layout = if room { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width().max(250.0), 24.0), layout, |ui| {
             // Always here: shows/hides the summary, or generates one if there is none.
             let has_summary = store.summary.is_some() || store.summary_state.is_running();
             let shown = has_summary && !mem.summary_collapsed;

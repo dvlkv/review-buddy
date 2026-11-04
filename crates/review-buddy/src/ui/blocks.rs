@@ -54,15 +54,11 @@ fn thread_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                     }
                     if collapsed {
                         if let Some(first) = t.comments.first() {
-                            ui.set_max_width(ui.available_width() - 60.0);
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!("@{}: {}", first.author, first.body.replace('\n', " ")))
-                                        .size(12.0)
-                                        .color(p.muted_text),
-                                )
-                                .truncate(),
-                            );
+                            let w = (ui.available_width() - 60.0).max(40.0);
+                            let text = RichText::new(format!("@{}: {}", first.author, first.body.replace('\n', " "))).size(12.0).color(p.muted_text);
+                            ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.add(egui::Label::new(text).truncate());
+                            });
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
