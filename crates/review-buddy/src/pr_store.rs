@@ -20,7 +20,7 @@ use review_buddy_core::diff::split::{SplitAligner, SplitPair};
 use review_buddy_core::git::worktree::{CommitInfo, Worktree};
 use review_buddy_core::github::client::{GitHubAPI, GitHubError, MergeResult};
 use review_buddy_core::highlight::lexer::{DiffHighlighter, SyntaxToken};
-use review_buddy_core::persistence::{LocalStore, PRLocalState};
+use review_buddy_core::persistence::PRLocalState;
 use review_buddy_core::review::keybindings::ReviewAction;
 use review_buddy_core::support::perf::Perf;
 use review_buddy_core::*;
@@ -28,7 +28,7 @@ use review_buddy_core::*;
 use crate::discuss::DiscussController;
 use crate::file_tree::FileTreeBuilder;
 use crate::rt::{job, Job, Spawner};
-use crate::services::{Services, SessionFactory, WorktreeProviding};
+use crate::services::{Services, WorktreeProviding};
 
 // MARK: - Small types
 
@@ -212,14 +212,10 @@ pub struct Env {
     pub pr_ref: PRRef,
     pub github: Arc<dyn GitHubAPI>,
     pub worktrees: Option<Arc<dyn WorktreeProviding>>,
-    pub store: Arc<LocalStore>,
     pub wt: Arc<WorktreeCell>,
     pub spawner: Spawner,
     pub local_clone: Option<PathBuf>,
-    pub claude_path: Option<String>,
-    pub model: Option<String>,
     pub one_shot: Arc<dyn ClaudeOneShotRunning>,
-    pub make_session: SessionFactory,
     pub generation: Arc<AtomicU64>,
 }
 
@@ -424,14 +420,10 @@ impl PRStore {
             pr_ref: self.pr_ref.clone(),
             github: self.services.github.clone(),
             worktrees: self.services.worktrees.clone(),
-            store: self.services.store.clone(),
             wt: self.wt.clone(),
             spawner: self.spawner.clone(),
             local_clone: self.services.local_clone(&self.pr_ref.name_with_owner()),
-            claude_path: self.services.claude_path.clone(),
-            model: self.services.claude_model(),
             one_shot: self.services.one_shot.clone(),
-            make_session: self.services.make_session.clone(),
             generation: self.generation.clone(),
         }
     }
@@ -1223,6 +1215,7 @@ impl PRStore {
                     None => gh.start_review(&detail.node_id).map(|id| (id, true)),
                 }
             };
+            #[allow(clippy::large_enum_variant)]
             enum Done {
                 Reload(PRDetail),
                 Thread(ReviewThread, Option<String>),

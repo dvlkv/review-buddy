@@ -27,6 +27,7 @@ pub trait WorktreeProviding: Send + Sync {
     fn diff_path(&self, repo_dir: &Path, from: &str, to: &str, path: &str) -> GitResult<Vec<u8>>;
     fn file_contents(&self, repo_dir: &Path, sha: &str, path: &str) -> GitResult<Vec<u8>>;
     fn head_sha(&self, wt: &Worktree) -> GitResult<String>;
+    #[allow(dead_code)] // the push sheet lists commits; diffs per commit are not shown yet
     fn commit_diff(&self, wt: &Worktree, sha: &str) -> GitResult<Vec<u8>>;
     /// The PR's worktree if it already exists on disk (never clones or fetches).
     fn ensure_existing_worktree(&self, pr: &PRDetail, local_clone: Option<&Path>) -> GitResult<Option<Worktree>>;
@@ -93,7 +94,7 @@ pub struct Services {
 }
 
 pub fn live_session_factory() -> SessionFactory {
-    Arc::new(|cfg, sink| Box::new(ClaudeSession::new(cfg, move |o| sink(o))) as Box<dyn ClaudeSessionApi>)
+    Arc::new(|cfg, sink| Box::new(ClaudeSession::new(cfg, sink)) as Box<dyn ClaudeSessionApi>)
 }
 
 impl Services {

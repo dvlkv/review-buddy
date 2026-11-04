@@ -530,7 +530,7 @@ fn draw_commit(painter: &egui::Painter, c: Pos2, color: Color32) {
 /// A four-pointed sparkle (the AI/Discuss marker).
 fn draw_sparkle(painter: &egui::Painter, c: Pos2, r: f32, color: Color32) {
     let k = r * 0.3;
-    let pts = vec![
+    let pts = [
         c + Vec2::new(0.0, -r),
         c + Vec2::new(k, -k),
         c + Vec2::new(r, 0.0),

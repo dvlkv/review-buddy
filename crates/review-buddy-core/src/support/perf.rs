@@ -4,9 +4,11 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+type Samples = (HashMap<String, Vec<f64>>, HashMap<String, usize>);
+
 #[derive(Default)]
 pub struct Perf {
-    inner: Mutex<(HashMap<String, Vec<f64>>, HashMap<String, usize>)>,
+    inner: Mutex<Samples>,
 }
 
 impl Perf {

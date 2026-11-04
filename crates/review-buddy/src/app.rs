@@ -118,6 +118,7 @@ impl AppState {
         self.prs.get_mut(&r)
     }
 
+    #[allow(dead_code)]
     pub fn pr_mut(&mut self, r: &PRRef) -> Option<&mut PRStore> {
         self.prs.get_mut(r)
     }
@@ -146,6 +147,7 @@ impl AppState {
         self.prs.get_mut(&r).unwrap().load();
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn open_url(&mut self, s: &str) -> bool {
         match PRRef::parse(s) {
             Some(r) => {

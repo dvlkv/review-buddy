@@ -1,7 +1,6 @@
 //! Discuss threads, the fix queue, the AI summary and the AI pre-review.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use chrono::Utc;
 use review_buddy_core::claude::prompts;
@@ -378,4 +377,3 @@ impl PRStore {
     }
 }
 
-pub type SharedDiff = Arc<DiffSet>;

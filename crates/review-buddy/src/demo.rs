@@ -99,6 +99,7 @@ impl DemoGitHub {
         DemoGitHub::new(text.into_bytes(), d)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn calls(&self) -> Vec<String> {
         self.inner.lock().unwrap().calls.clone()
     }
@@ -114,6 +115,7 @@ impl DemoGitHub {
     }
 
     /// Simulates a push to the PR. `diff` replaces the PR's diff, as a push that changes code would.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn simulate_push(&self, head_oid: &str, diff: Option<Vec<u8>>) {
         let mut g = self.inner.lock().unwrap();
         g.detail.head_oid = head_oid.to_string();
@@ -122,6 +124,7 @@ impl DemoGitHub {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_detail(&self, f: impl FnOnce(&mut PRDetail)) {
         f(&mut self.inner.lock().unwrap().detail);
     }

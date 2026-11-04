@@ -224,6 +224,7 @@ fn is_executable(p: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::useless_vec)]
     use super::*;
 
     #[test]

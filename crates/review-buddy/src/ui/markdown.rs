@@ -27,11 +27,6 @@ pub fn markdown(ui: &mut Ui, text: &str, suggestion_context: &[String]) {
     blocks_ui(ui, &blocks, suggestion_context, &MdStyle::default());
 }
 
-pub fn markdown_sized(ui: &mut Ui, text: &str, size: f32) {
-    let blocks = MarkdownParser::parse(text);
-    blocks_ui(ui, &blocks, &[], &MdStyle { size });
-}
-
 fn blocks_ui(ui: &mut Ui, blocks: &[MarkdownBlock], ctx: &[String], st: &MdStyle) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
@@ -314,10 +309,10 @@ fn parse_inline(s: &str, st: Style, out: &mut dyn FnMut(&str, Style, Option<&str
             }
         }
         // ~~strike~~
-        if rest.starts_with("~~") {
-            if let Some(end) = rest[2..].find("~~") {
+        if let Some(tail) = rest.strip_prefix("~~") {
+            if let Some(end) = tail.find("~~") {
                 out(&s[start..i], st, None);
-                parse_inline(&rest[2..2 + end], Style { strike: true, ..st }, out);
+                parse_inline(&tail[..end], Style { strike: true, ..st }, out);
                 i += 4 + end;
                 start = i;
                 continue;

@@ -57,19 +57,6 @@ impl Spawner {
             ctx.request_repaint();
         }
     }
-
-    /// Applies `job` after `delay` (timers, debounces, retries).
-    pub fn after(&self, delay: std::time::Duration, job: Job) {
-        if self.inline {
-            self.post(job);
-            return;
-        }
-        let me = self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            me.post(job);
-        });
-    }
 }
 
 /// Builds a `Job` from a closure with less boxing noise.

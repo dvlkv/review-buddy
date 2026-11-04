@@ -46,9 +46,6 @@ impl CanvasState {
         let max = (self.offsets.last().copied().unwrap_or(0.0) - 600.0).max(0.0);
         self.force_scroll = Some((self.scroll_y + dy).clamp(0.0, max));
     }
-    pub fn scroll_y(&self) -> f32 {
-        self.scroll_y
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -85,7 +82,7 @@ impl Geo {
             DiffViewMode::Split => (if side == DiffSide::Left { 0.0 } else { self.half() }) + self.num_width + self.marker_width,
         }
     }
-    fn code_width(&self, side: DiffSide) -> f32 {
+    fn code_width(&self, _side: DiffSide) -> f32 {
         match self.mode {
             DiffViewMode::Unified => self.width - self.code_x(DiffSide::Right),
             DiffViewMode::Split => self.half() - self.num_width - self.marker_width,
@@ -871,6 +868,7 @@ pub fn file_header(ui: &mut Ui, store: &mut PRStore, p: &Palette, m: &DiffMetric
 
 // MARK: - Mouse
 
+#[allow(clippy::too_many_arguments)]
 fn handle_mouse(
     ui: &Ui,
     store: &mut PRStore,
@@ -1044,6 +1042,38 @@ mod tests {
         assert_eq!(word_range("abc", 99), 0..3);
         assert_eq!(word_range("", 0), 0..0);
         assert_eq!(word_range("é_x y", 0), 0..4);
+    }
+
+    #[test]
+    fn geometry_columns() {
+        let u = Geo { mode: DiffViewMode::Unified, num_width: 50.0, marker_width: 22.0, width: 1000.0 };
+        assert_eq!(u.code_x(DiffSide::Right), 122.0);
+        assert_eq!(u.code_width(DiffSide::Left), 878.0);
+        assert!(u.is_gutter(121.0) && !u.is_gutter(123.0));
+        assert_eq!(u.side_at(900.0), DiffSide::Left);
+        let s = Geo { mode: DiffViewMode::Split, ..u };
+        assert_eq!(s.half(), 500.0);
+        assert_eq!(s.code_x(DiffSide::Left), 72.0);
+        assert_eq!(s.code_x(DiffSide::Right), 572.0);
+        assert_eq!(s.code_width(DiffSide::Right), 428.0);
+        assert_eq!(s.side_at(499.0), DiffSide::Left);
+        assert_eq!(s.side_at(500.0), DiffSide::Right);
+        assert!(s.is_gutter(560.0) && !s.is_gutter(580.0));
+        assert_eq!(s.gutter_width(), 50.0);
+        assert_eq!(u.gutter_width(), 100.0);
+    }
+
+    #[test]
+    fn row_lookup_by_y() {
+        let cs = CanvasState { offsets: vec![0.0, 38.0, 62.0, 82.0, 282.0], ..Default::default() };
+        assert_eq!(row_at(&cs, -5.0), 0);
+        assert_eq!(row_at(&cs, 0.0), 0);
+        assert_eq!(row_at(&cs, 37.9), 0);
+        assert_eq!(row_at(&cs, 38.0), 1);
+        assert_eq!(row_at(&cs, 100.0), 3);
+        assert_eq!(row_at(&cs, 5000.0), 3);
+        let empty = CanvasState { offsets: vec![0.0], ..Default::default() };
+        assert_eq!(row_at(&empty, 10.0), 0);
     }
 
     #[test]

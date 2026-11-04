@@ -712,11 +712,11 @@ impl ReviewBuddyApp {
                     close = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let ok = !s.submit_state.is_running() && !(*event == ReviewEvent::Comment && s.review_body.is_empty() && n == 0);
+                    let ok = !s.submit_state.is_running() && (*event != ReviewEvent::Comment || !s.review_body.is_empty() || n > 0);
                     let cmd_enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Enter));
                     if s.submit_state.is_running() {
                         ui.spinner();
-                    } else if (gh_button(ui, "Submit review", BtnKind::Primary, ok).clicked() || (cmd_enter && ok)) {
+                    } else if gh_button(ui, "Submit review", BtnKind::Primary, ok).clicked() || (cmd_enter && ok) {
                         let e = *event;
                         s.submit_review(e, |_, _| {});
                         close = true;
