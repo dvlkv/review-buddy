@@ -586,6 +586,7 @@ impl PRStore {
         self.pending_expands.clear();
         self.options.expanded_above.clear();
         self.options.expanded_below.clear();
+        self.options.below_complete.clear();
         self.options.force_loaded.clear();
         self.selection = None;
         self.reset_highlights(diff.files.len());
@@ -924,9 +925,18 @@ impl PRStore {
                     return;
                 }
                 *self.options.expanded_below.entry(file).or_insert(0) += more;
+                self.sync_below_complete(file);
             }
         }
         self.rebuild_layout(true);
+    }
+
+    /// Marks `file` as having nothing left to expand below (its footer is dropped).
+    fn sync_below_complete(&mut self, file: usize) -> bool {
+        let Some(f) = self.files().get(file) else { return false };
+        let (Some(lines), Some(last)) = (self.file_content_cache.get(f.path()), f.hunks.last()) else { return false };
+        let shown_end = last.new_end() as i64 - 1 + self.options.expanded_below.get(&file).copied().unwrap_or(0);
+        shown_end >= lines.len() as i64 && self.options.below_complete.insert(file)
     }
 
     /// Loads the head version of `file` (checkout first, then GitHub) for expanded context.
@@ -985,6 +995,9 @@ impl PRStore {
                 s.pending_expands.retain(|(f, _)| *f != file);
                 for e in pending {
                     s.apply_expand(file, e);
+                }
+                if s.sync_below_complete(file) {
+                    s.rebuild_layout(true);
                 }
                 s.layout_version += 1;
             })

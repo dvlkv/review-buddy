@@ -144,6 +144,8 @@ pub struct DiffLayoutOptions {
     pub expanded_above: HashMap<i64, i64>,
     /// Lines expanded below the last hunk of file `f`.
     pub expanded_below: HashMap<usize, i64>,
+    /// Files whose tail has been expanded to the end: their `ExpandFooter` is dropped.
+    pub below_complete: HashSet<usize>,
     pub large_file_threshold: usize,
     /// Emit an `ExpandFooter` row after each file's last hunk.
     pub show_expand_footer: bool,
@@ -157,6 +159,7 @@ impl Default for DiffLayoutOptions {
             force_loaded: HashSet::new(),
             expanded_above: HashMap::new(),
             expanded_below: HashMap::new(),
+            below_complete: HashSet::new(),
             large_file_threshold: 2000,
             show_expand_footer: false,
         }
@@ -285,7 +288,12 @@ impl DiffLayout {
                 };
                 let new_first = i64::from(hunk.new_first());
                 let lo = prev_new_end.max(new_first - n.max(0));
-                rows.push(LayoutRow::with(RowKind::HunkHeader, f, hi as i32, (lo - prev_new_end).max(0) as i32));
+                // Once the gap above is fully revealed the header has nothing left to
+                // expand: drop it so the hunk joins what's above (as on GitHub).
+                let closed = lo <= prev_new_end && (n > 0 || hi > 0);
+                if !closed {
+                    rows.push(LayoutRow::with(RowKind::HunkHeader, f, hi as i32, (lo - prev_new_end).max(0) as i32));
+                }
                 if lo < new_first {
                     let old_offset = new_first - i64::from(hunk.old_first());
                     emit_expanded(lo..new_first, old_offset, f, fb.as_ref(), &mut rows);
@@ -333,7 +341,11 @@ impl DiffLayout {
                     emit_expanded(prev_new_end..prev_new_end + below, old_offset, f, fb.as_ref(), &mut rows);
                 }
             }
-            if options.show_expand_footer && !file.hunks.is_empty() && file.status != FileStatus::Deleted {
+            if options.show_expand_footer
+                && !file.hunks.is_empty()
+                && file.status != FileStatus::Deleted
+                && !options.below_complete.contains(&fi)
+            {
                 rows.push(LayoutRow::with(RowKind::ExpandFooter, f, -1, below as i32));
             }
             // Blocks whose line is not visible (outdated threads, lines outside hunks)
@@ -593,7 +605,7 @@ mod tests {
     fn hunk_header_stays_above_expanded_context() {
         let mut header_rows = HashSet::new();
         let mut hidden = Vec::new();
-        for n in [0i64, 5, 10, 17, 100] {
+        for n in [0i64, 5, 10, 16] {
             let l = layout(above(0, 1, n));
             let h = l
                 .rows
@@ -612,15 +624,23 @@ mod tests {
         }
         assert_eq!(header_rows.len(), 1);
         // 13..<30 is hidden at first: 17 lines.
-        assert_eq!(hidden, [17, 12, 7, 0, 0]);
+        assert_eq!(hidden, [17, 12, 7, 1]);
+        // Fully revealed: the header goes and the gap's lines take its place.
+        let h = *header_rows.iter().next().unwrap();
+        for n in [17i64, 100] {
+            let l = layout(above(0, 1, n));
+            assert!(!l.rows.iter().any(|r| r.kind == RowKind::HunkHeader && r.file == 0 && r.a == 1));
+            assert!(l.rows[h].kind == RowKind::Expanded && l.rows[h].a == 13);
+        }
     }
 
     #[test]
     fn expanding_the_first_hunk_reaches_line_one() {
+        // Reaching line 1 leaves nothing to expand, so the header is dropped.
         let l = layout(above(0, 0, 9));
-        assert!(l.rows[1].kind == RowKind::HunkHeader && l.rows[1].b == 0);
-        assert_eq!(l.rows[2..=10].iter().map(|r| r.a).collect::<Vec<_>>(), (1..=9).collect::<Vec<i32>>());
-        assert!(l.rows[2..=10].iter().all(|r| r.kind == RowKind::Expanded));
+        assert_eq!(l.rows[1..=9].iter().map(|r| r.a).collect::<Vec<_>>(), (1..=9).collect::<Vec<i32>>());
+        assert!(l.rows[1..=9].iter().all(|r| r.kind == RowKind::Expanded));
+        assert!(!l.rows.iter().any(|r| r.kind == RowKind::HunkHeader && r.file == 0 && r.a == 0));
         let partial = layout(above(0, 0, 4));
         assert_eq!(partial.rows[1].b, 5);
         // Old numbers follow the hunk's offset (0 here).
@@ -703,8 +723,8 @@ mod tests {
         // Old numbering: before the deletion old == new; after it, old = new + 2.
         assert_eq!(rows.iter().find(|r| r.a == 4).unwrap().b, 4);
         assert_eq!(rows.iter().find(|r| r.a == 5).unwrap().b, 7);
-        let hidden: Vec<i32> = l.rows.iter().filter(|r| r.kind == RowKind::HunkHeader).map(|r| r.b).collect();
-        assert_eq!(hidden, [0, 0]);
+        // Both gaps are closed, so neither hunk keeps a header.
+        assert!(!l.rows.iter().any(|r| r.kind == RowKind::HunkHeader));
     }
 
     #[test]

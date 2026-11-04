@@ -57,10 +57,12 @@ fn repeated_expand_above_fills_the_gap_and_stops() {
     assert_eq!(clicks, (gap + 19) / 20);
     let s = h.s();
     assert!(!s.can_expand_above(0, 1));
-    // Every hidden line shown exactly once, in order, right after the header.
+    // Every hidden line shown exactly once, in order, where the header was; with nothing
+    // left to expand the header itself is gone and the hunks read as one.
     assert_eq!(expanded_lines(s, 0), (f.hunks[0].new_end() as i64..f.hunks[1].new_first() as i64).collect::<Vec<_>>());
-    assert_eq!(header_row(s, 0, 1), header);
-    assert_eq!(s.layout.as_ref().unwrap().rows[header].b, 0);
+    let rows = &s.layout.as_ref().unwrap().rows;
+    assert!(!rows.iter().any(|r| r.kind == RowKind::HunkHeader && r.file == 0 && r.a == 1));
+    assert!(rows[header].kind == RowKind::Expanded && rows[header].a as i64 == f.hunks[0].new_end() as i64);
     // Never counts past the gap, so later clicks are no-ops.
     assert_eq!(s.options.expanded_above.get(&DiffLayoutOptions::key(0, 1)), Some(&gap));
     let v = s.layout_version;
@@ -76,6 +78,22 @@ fn expand_above_first_hunk_reaches_line_one() {
     let s = h.s();
     assert_eq!(expanded_lines(s, 2), (1..s.files()[2].hunks[0].new_first() as i64).collect::<Vec<_>>());
     assert!(!s.can_expand_above(2, 0));
+    assert!(!s.layout.as_ref().unwrap().rows.iter().any(|r| r.kind == RowKind::HunkHeader && r.file == 2 && r.a == 0));
+}
+
+#[test]
+fn expand_below_to_the_end_drops_the_footer() {
+    let mut h = Harness::new();
+    h.load();
+    let footer = |s: &PRStore| s.layout.as_ref().unwrap().rows.iter().any(|r| r.kind == RowKind::ExpandFooter && r.file == 0);
+    assert!(footer(h.s()));
+    let mut clicks = 0;
+    while h.s().can_expand_below(0) && clicks < 100 {
+        h.act(|s| s.expand_below(0, 20));
+        clicks += 1;
+    }
+    assert!(clicks > 0 && !h.s().can_expand_below(0));
+    assert!(!footer(h.s()));
 }
 
 #[test]
