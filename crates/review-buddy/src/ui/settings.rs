@@ -144,7 +144,7 @@ fn tab_bar(ui: &mut Ui, tab: &mut Tab) {
         ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
         for (t, name) in [(Tab::Accounts, "Accounts"), (Tab::Repositories, "Repositories"), (Tab::Review, "Review")] {
             let selected = *tab == t;
-            let text = RichText::new(name).size(13.0).color(if selected { p.text } else { p.muted_text });
+            let text = RichText::new(name).size(14.0).color(if selected { p.text } else { p.muted_text });
             let btn = egui::Button::new(if selected { text.strong() } else { text })
                 .fill(if selected { p.subtle } else { egui::Color32::TRANSPARENT })
                 .stroke(egui::Stroke::new(1.0, if selected { p.border } else { egui::Color32::TRANSPARENT }))
@@ -161,7 +161,7 @@ fn tab_bar(ui: &mut Ui, tab: &mut Tab) {
 fn section(ui: &mut Ui, title: &str, footer: Option<&str>, add: impl FnOnce(&mut Ui)) {
     let p = pal(ui);
     ui.add_space(4.0);
-    ui.label(RichText::new(title).size(12.0).strong().color(p.muted_text));
+    ui.label(RichText::new(title).size(13.0).strong().color(p.muted_text));
     ui.add_space(2.0);
     card(ui, p.subtle, p.border, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
@@ -172,7 +172,7 @@ fn section(ui: &mut Ui, title: &str, footer: Option<&str>, add: impl FnOnce(&mut
     });
     if let Some(f) = footer {
         ui.add_space(2.0);
-        ui.label(RichText::new(f).size(11.0).color(p.muted_text));
+        ui.label(RichText::new(f).size(12.0).color(p.muted_text));
     }
     ui.add_space(10.0);
 }
@@ -189,21 +189,21 @@ fn row(ui: &mut Ui, label: &str, control: impl FnOnce(&mut Ui)) {
     let p = pal(ui);
     ui.horizontal(|ui| {
         ui.set_min_height(24.0);
-        ui.label(RichText::new(label).size(13.0).color(p.text));
+        ui.label(RichText::new(label).size(14.0).color(p.text));
         ui.with_layout(Layout::right_to_left(Align::Center), control);
     });
 }
 
 fn caption(ui: &mut Ui, text: &str) {
     let p = pal(ui);
-    ui.label(RichText::new(text).size(11.0).color(p.muted_text));
+    ui.label(RichText::new(text).size(12.0).color(p.muted_text));
 }
 
 fn toggle(ui: &mut Ui, label: &str, value: &mut bool) {
     let p = pal(ui);
     ui.horizontal(|ui| {
         ui.set_min_height(24.0);
-        ui.checkbox(value, RichText::new(label).size(13.0).color(p.text));
+        ui.checkbox(value, RichText::new(label).size(14.0).color(p.text));
     });
 }
 
@@ -228,10 +228,10 @@ fn accounts_tab(ui: &mut Ui, state: &AppState, s: &mut SettingsState, edited: &m
         let status = s.gh_status.lock().unwrap().clone();
         row(ui, "GitHub CLI", |ui| match status {
             Some(st) => {
-                ui.label(RichText::new(st).size(12.0).color(p.muted_text));
+                ui.label(RichText::new(st).size(13.0).color(p.muted_text));
             }
             None => {
-                ui.label(RichText::new("Checking…").size(12.0).color(p.muted_text));
+                ui.label(RichText::new("Checking…").size(13.0).color(p.muted_text));
                 ui.add(egui::Spinner::new().size(12.0));
             }
         });
@@ -256,10 +256,10 @@ fn accounts_tab(ui: &mut Ui, state: &AppState, s: &mut SettingsState, edited: &m
             }
             match s.pat_saved {
                 Some(true) => {
-                    ui.label(RichText::new("Saved").size(11.0).color(p.success));
+                    ui.label(RichText::new("Saved").size(12.0).color(p.success));
                 }
                 Some(false) => {
-                    ui.label(RichText::new("Couldn't write to the Keychain").size(11.0).color(p.del_marker));
+                    ui.label(RichText::new("Couldn't write to the Keychain").size(12.0).color(p.del_marker));
                 }
                 None => {}
             }
@@ -272,8 +272,8 @@ fn accounts_tab(ui: &mut Ui, state: &AppState, s: &mut SettingsState, edited: &m
     section(ui, "Claude", None, |ui| {
         row(ui, "claude CLI", |ui| {
             let text = match &state.services.claude_path {
-                Some(path) => RichText::new(path).font(FontId::monospace(11.0)).color(p.muted_text),
-                None => RichText::new("Not found — install Claude Code").size(12.0).color(p.attention),
+                Some(path) => RichText::new(path).font(FontId::monospace(12.0)).color(p.muted_text),
+                None => RichText::new("Not found — install Claude Code").size(13.0).color(p.attention),
             };
             ui.add(egui::Label::new(text).truncate());
         });
@@ -293,7 +293,7 @@ fn accounts_tab(ui: &mut Ui, state: &AppState, s: &mut SettingsState, edited: &m
 /// Returns true when the pinned list changed.
 fn repos_tab(ui: &mut Ui, s: &mut SettingsState, edited: &mut AppSettings) -> bool {
     let p = pal(ui);
-    let mono = FontId::monospace(12.0);
+    let mono = FontId::monospace(13.0);
     let mut pinned_changed = false;
 
     section(ui, "Pinned repositories", None, |ui| {
@@ -377,7 +377,7 @@ fn repos_tab(ui: &mut Ui, s: &mut SettingsState, edited: &mut AppSettings) -> bo
                                 Some(path) => (head_truncate(path, 44), p.muted_text),
                                 None => ("Managed clone".to_string(), p.muted_text),
                             };
-                            ui.add(egui::Label::new(RichText::new(text).size(12.0).color(color)).truncate());
+                            ui.add(egui::Label::new(RichText::new(text).size(13.0).color(color)).truncate());
                         }
                     });
                 });
@@ -397,7 +397,7 @@ fn repos_tab(ui: &mut Ui, s: &mut SettingsState, edited: &mut AppSettings) -> bo
                                 let r = ui.add(
                                     egui::TextEdit::singleline(buf)
                                         .hint_text(format!("Path to your local clone of {repo}"))
-                                        .font(FontId::monospace(11.0))
+                                        .font(FontId::monospace(12.0))
                                         .desired_width(f32::INFINITY),
                                 );
                                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -416,7 +416,7 @@ fn repos_tab(ui: &mut Ui, s: &mut SettingsState, edited: &mut AppSettings) -> bo
                         }
                     }
                     if let Some(e) = error {
-                        ui.label(RichText::new(e).size(11.0).color(p.del_marker));
+                        ui.label(RichText::new(e).size(12.0).color(p.del_marker));
                     }
                     if commit || cancel {
                         s.editing_clone = None;
@@ -461,7 +461,7 @@ fn review_tab(ui: &mut Ui, s: &mut AppSettings) {
             ui.spacing_mut().item_spacing.x = 0.0;
             for (mode, name) in [(DiffViewMode::Split, "Split"), (DiffViewMode::Unified, "Unified")] {
                 let selected = s.view_mode == mode;
-                let btn = egui::Button::new(RichText::new(name).size(12.0).color(if selected { p.text } else { p.muted_text }))
+                let btn = egui::Button::new(RichText::new(name).size(13.0).color(if selected { p.text } else { p.muted_text }))
                     .fill(if selected { p.canvas } else { p.subtle })
                     .stroke(egui::Stroke::new(1.0, p.border))
                     .min_size(egui::vec2(72.0, 24.0))

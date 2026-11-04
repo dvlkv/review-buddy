@@ -7,6 +7,8 @@ edition.workspace = true
 chrono = "0.4.45"
 eframe = "0.35.0"
 egui = "0.35.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 png = "0.18.1"
 review_buddy_core = { version = "0.3.0", path = "../review-buddy-core" }
 serde_json = "1.0.154"
+ureq = "2"

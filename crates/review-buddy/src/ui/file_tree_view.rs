@@ -133,7 +133,7 @@ fn overview_row(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
     painter.rect_stroke(rect, radius, Stroke::new(1.0, if active { p.accent } else { p.border }), StrokeKind::Inside);
 
     let fg = if active { p.text } else { p.muted_text };
-    let font = FontId::proportional(12.0);
+    let font = FontId::proportional(13.0);
     let mid = rect.center().y;
     let mut x = rect.left() + 8.0;
     draw_bubbles(painter, Pos2::new(x + 8.0, mid), fg);
@@ -186,7 +186,7 @@ fn filter_box(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
                 let te = egui::TextEdit::singleline(&mut store.file_filter)
                     .hint_text(RichText::new("Filter files…").color(p.muted_text))
                     .frame(egui::Frame::NONE)
-                    .font(FontId::proportional(12.0))
+                    .font(FontId::proportional(13.0))
                     .desired_width(f32::INFINITY);
                 ui.add(te);
             });
@@ -251,7 +251,7 @@ fn row(
     let mut x = rect.left() + 4.0 + r.depth as f32 * 12.0;
     if r.is_section {
         let painter = ui.painter();
-        painter.text(Pos2::new(x + 4.0, mid + 2.0), Align2::LEFT_CENTER, r.name.to_uppercase(), FontId::proportional(10.0), p.muted_text);
+        painter.text(Pos2::new(x + 4.0, mid + 2.0), Align2::LEFT_CENTER, r.name.to_uppercase(), FontId::proportional(11.0), p.muted_text);
         return;
     }
     let id = ui.id().with(("tree_row", &r.id));
@@ -271,7 +271,7 @@ fn row(
         let is_collapsed = collapsed.contains(&r.id);
         draw_folder(&painter, Pos2::new(x + 8.0, mid), p.muted_text, !is_collapsed);
         x += 21.0;
-        let font = FontId::proportional(12.0);
+        let font = FontId::proportional(13.0);
         let name = truncate_middle(ui, &r.name, &font, rect.right() - 10.0 - x);
         painter.text(Pos2::new(x, mid), Align2::LEFT_CENTER, name, font, p.muted_text);
         if resp.clicked() {
@@ -286,7 +286,7 @@ fn row(
     let viewed = store.viewed.contains(&path);
 
     if let Some(rank) = r.rank {
-        painter.text(Pos2::new(x + 12.0, mid), Align2::CENTER_CENTER, rank.to_string(), FontId::monospace(10.0), p.ai_accent);
+        painter.text(Pos2::new(x + 12.0, mid), Align2::CENTER_CENTER, rank.to_string(), FontId::monospace(11.0), p.ai_accent);
         x += 18.0;
     }
     draw_status(&painter, Pos2::new(x + 8.0, mid), file.status, p);
@@ -309,7 +309,7 @@ fn row(
         right -= 14.0;
     }
     let threads = store.open_thread_count_by_path.get(&path).copied().unwrap_or(0);
-    let small = FontId::proportional(10.0);
+    let small = FontId::proportional(11.0);
     if threads > 0 {
         let g = painter.layout_no_wrap(threads.to_string(), small.clone(), p.muted_text);
         right -= g.size().x;
@@ -319,7 +319,7 @@ fn row(
     }
     // +/- counts only when there is room for a readable name.
     if right - x > 110.0 && (file.additions > 0 || file.deletions > 0) {
-        let mono = FontId::monospace(10.0);
+        let mono = FontId::monospace(11.0);
         if file.deletions > 0 {
             let g = painter.layout_no_wrap(format!("−{}", file.deletions), mono.clone(), p.del_marker);
             right -= g.size().x;
@@ -334,7 +334,7 @@ fn row(
         right -= 6.0;
     }
 
-    let font = FontId::proportional(12.0);
+    let font = FontId::proportional(13.0);
     let name = truncate_middle(ui, &r.name, &font, right - x - 4.0);
     painter.text(Pos2::new(x, mid), Align2::LEFT_CENTER, name, font, if viewed { p.muted_text } else { p.text });
 
@@ -388,7 +388,7 @@ fn footer(ui: &mut Ui, store: &PRStore, p: &Palette) {
         Pos2::new(rect.left() + 10.0, mid),
         Align2::LEFT_CENTER,
         format!("{viewed} / {total} files viewed"),
-        FontId::proportional(11.0),
+        FontId::proportional(12.0),
         p.muted_text,
     );
     let bar = Rect::from_min_size(Pos2::new(rect.right() - 70.0, mid - 2.0), Vec2::new(60.0, 4.0));

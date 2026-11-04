@@ -50,13 +50,13 @@ fn header(ui: &mut Ui, store: &mut PRStore, has_active: bool, p: &Palette) {
     let ui = &mut child;
     ui.spacing_mut().item_spacing.x = 8.0;
     if has_active {
-        let back = ui.add(egui::Button::new(RichText::new("‹").size(18.0).color(p.muted_text)).frame(false)).on_hover_text("All conversations");
+        let back = super::icons::icon_button(ui, super::icons::Icon::ChevronLeft, 13.0, p.muted_text, true).on_hover_text("All conversations");
         if back.clicked() {
             store.active_discuss_id = None;
         }
     }
-    ui.label(RichText::new("✦").color(p.ai_accent).size(13.0));
-    ui.label(RichText::new("Discuss").strong().size(13.0).color(p.text));
+    super::icons::icon(ui, super::icons::Icon::Sparkle, 14.0, p.ai_accent);
+    ui.label(RichText::new("Discuss").strong().size(14.0).color(p.text));
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         let n = store.local_commits.len();
         if n > 0 {
@@ -73,11 +73,11 @@ fn thread_list(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
         ui.vertical_centered(|ui| {
             ui.set_max_width((ui.available_width() - 48.0).max(100.0));
             ui.spacing_mut().item_spacing.y = 10.0;
-            ui.label(RichText::new("✦").size(28.0).color(p.ai_accent.gamma_multiply(0.6)));
-            ui.label(RichText::new("Select lines in the diff and press Discuss (or D) to ask Claude about them.").size(12.0).color(p.muted_text));
+            super::icons::icon(ui, super::icons::Icon::Sparkle, 28.0, p.ai_accent.gamma_multiply(0.6));
+            ui.label(RichText::new("Select lines in the diff and press Discuss (or D) to ask Claude about them.").size(13.0).color(p.muted_text));
             ui.label(
                 RichText::new("Claude works in a private checkout of this PR. It can read the whole repo, run commands, and fix what you discuss.")
-                    .size(11.0)
+                    .size(12.0)
                     .color(p.muted_text),
             );
         });
@@ -94,7 +94,7 @@ fn thread_list(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
                 ui.spacing_mut().item_spacing.y = 3.0;
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.label(RichText::new(t.anchor.label()).font(FontId::monospace(11.0)).color(p.accent));
+                    ui.label(RichText::new(t.anchor.label()).font(FontId::monospace(12.0)).color(p.accent));
                     if t.status == DiscussStatus::Outdated {
                         pill(ui, "Outdated", p.attention, false);
                     }
@@ -102,11 +102,11 @@ fn thread_list(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
                         fix_badge(ui, fix);
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(relative(&t.created_at)).size(10.0).color(p.muted_text));
+                        ui.label(RichText::new(relative(&t.created_at)).size(11.0).color(p.muted_text));
                     });
                 });
                 let title = if t.messages.is_empty() { "New conversation".to_string() } else { t.title() };
-                ui.add(egui::Label::new(RichText::new(two_lines(&title)).size(12.0).color(p.text)).wrap().selectable(false));
+                ui.add(egui::Label::new(RichText::new(two_lines(&title)).size(13.0).color(p.text)).wrap().selectable(false));
             });
             let resp = ui.interact(inner.response.rect, ui.id().with(("discuss-row", &t.id)), Sense::click());
             if resp.hovered() {
@@ -177,7 +177,7 @@ fn conversation(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState,
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new("Ask Claude anything about the selected lines — why they're written this way, whether there's a bug, how to test them…")
-                            .size(12.0)
+                            .size(13.0)
                             .color(p.muted_text),
                     );
                 }
@@ -187,7 +187,7 @@ fn conversation(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState,
                 if let Some(status) = &c.status {
                     ui.horizontal(|ui| {
                         spinner(ui);
-                        ui.label(RichText::new(status).size(12.0).color(p.muted_text));
+                        ui.label(RichText::new(status).size(13.0).color(p.muted_text));
                     });
                 } else if c.reducer.is_running() {
                     typing_indicator(ui, p);
@@ -221,8 +221,8 @@ fn anchor_header(ui: &mut Ui, store: &mut PRStore, t: &DiscussThread, intent: &m
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            ui.label(RichText::new("≡").color(p.muted_text).size(12.0));
-            ui.label(RichText::new(t.anchor.label()).font(FontId::monospace(12.0)).color(p.accent));
+            ui.label(RichText::new("≡").color(p.muted_text).size(13.0));
+            ui.label(RichText::new(t.anchor.label()).font(FontId::monospace(13.0)).color(p.accent));
             if t.status == DiscussStatus::Outdated {
                 pill(ui, "Outdated", p.attention, false);
             }
@@ -231,7 +231,7 @@ fn anchor_header(ui: &mut Ui, store: &mut PRStore, t: &DiscussThread, intent: &m
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let del = ui
-                    .add(egui::Button::new(RichText::new("Delete").size(11.0).color(p.muted_text)).frame(false))
+                    .add(egui::Button::new(RichText::new("Delete").size(12.0).color(p.muted_text)).frame(false))
                     .on_hover_text("Delete this conversation");
                 if del.clicked() {
                     *intent = Some(Intent::Delete);
@@ -248,7 +248,7 @@ fn anchor_header(ui: &mut Ui, store: &mut PRStore, t: &DiscussThread, intent: &m
                 ui.spacing_mut().item_spacing.y = 1.0;
                 // One truncated label per line (a multi-line label would truncate to a single row).
                 for l in shown {
-                    ui.add(egui::Label::new(RichText::new(l).font(FontId::monospace(11.0)).color(p.muted_text)).truncate().selectable(false));
+                    ui.add(egui::Label::new(RichText::new(l).font(FontId::monospace(12.0)).color(p.muted_text)).truncate().selectable(false));
                 }
             });
         }
@@ -282,18 +282,18 @@ fn bottom_area(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState, 
 
         // Commits made by "Fix it" from this conversation.
         if !fix_commits.is_empty() {
-            ui.label(RichText::new("Commits from this conversation").size(11.0).strong().color(p.muted_text));
+            ui.label(RichText::new("Commits from this conversation").size(12.0).strong().color(p.muted_text));
             for (sha, subject) in &fix_commits {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let short: String = sha.chars().take(7).collect();
-                    ui.label(RichText::new(short).font(FontId::monospace(11.0)).color(p.accent));
+                    ui.label(RichText::new(short).font(FontId::monospace(12.0)).color(p.accent));
                     match subject {
                         Some(s) => {
-                            ui.add(egui::Label::new(RichText::new(s).size(11.5).color(p.text)).truncate());
+                            ui.add(egui::Label::new(RichText::new(s).size(12.5).color(p.text)).truncate());
                         }
                         None => {
-                            ui.label(RichText::new("pushed").size(11.0).color(p.muted_text));
+                            ui.label(RichText::new("pushed").size(12.0).color(p.muted_text));
                         }
                     }
                 });
@@ -302,10 +302,10 @@ fn bottom_area(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState, 
         if local_count > 0 {
             ui.label(
                 RichText::new(format!(
-                    "{local_count} local commit{} not pushed yet. Push them with ⬆ {local_count} local in the toolbar.",
+                    "{local_count} local commit{} not pushed yet. Push them with “{local_count} local” in the toolbar.",
                     if local_count == 1 { "" } else { "s" }
                 ))
-                .size(11.0)
+                .size(12.0)
                 .color(p.attention),
             );
         }
@@ -354,7 +354,7 @@ fn bottom_area(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState, 
                     egui::TextEdit::multiline(&mut c.input)
                         .id(edit_id)
                         .hint_text(RichText::new(hint).color(p.muted_text))
-                        .font(FontId::proportional(13.0))
+                        .font(FontId::proportional(14.0))
                         .text_color(p.text)
                         .frame(egui::Frame::NONE)
                         .desired_rows(3)
@@ -373,7 +373,7 @@ fn bottom_area(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState, 
         let enter = focused && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("↩ send · ⇧↩ newline").size(10.5).color(p.muted_text));
+            ui.label(RichText::new("↩ send · ⇧↩ newline").size(11.5).color(p.muted_text));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 let send = gh_button(ui, "↑ Send", BtnKind::Ai, can_send).clicked();
@@ -403,7 +403,7 @@ fn message(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: &
                     .show(ui, |ui| {
                         ui.set_max_width(max_w - 20.0);
                         ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                            ui.add(egui::Label::new(RichText::new(&m.text).size(13.0).color(p.text)).wrap());
+                            ui.add(egui::Label::new(RichText::new(&m.text).size(14.0).color(p.text)).wrap());
                         });
                     });
             });
@@ -412,7 +412,7 @@ fn message(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: &
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 ui.add_space(0.0);
-                ui.label(RichText::new("✦").size(12.0).color(p.ai_accent));
+                super::icons::icon(ui, super::icons::Icon::Sparkle, 13.0, p.ai_accent);
                 let w = ui.available_width();
                 ui.allocate_ui_with_layout(Vec2::new(w, 0.0), Layout::top_down(Align::Min), |ui| {
                     ui.set_max_width(w);
@@ -427,13 +427,13 @@ fn message(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: &
         Role::Error => {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                ui.label(RichText::new("⚠").size(12.0).color(p.del_marker));
-                ui.add(egui::Label::new(RichText::new(&m.text).size(12.0).color(p.del_marker)).wrap());
+                ui.label(RichText::new("⚠").size(13.0).color(p.del_marker));
+                ui.add(egui::Label::new(RichText::new(&m.text).size(13.0).color(p.del_marker)).wrap());
             });
         }
         Role::System => {
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new(&m.text).size(11.0).color(p.muted_text));
+                ui.label(RichText::new(&m.text).size(12.0).color(p.muted_text));
             });
         }
     }
@@ -441,7 +441,7 @@ fn message(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: &
 
 fn tool_row(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: &Palette) {
     let open = expanded.contains(&m.id);
-    let mono = FontId::monospace(11.5);
+    let mono = FontId::monospace(12.5);
     ui.horizontal(|ui| {
         ui.add_space(20.0);
         ui.vertical(|ui| {
@@ -449,7 +449,7 @@ fn tool_row(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: 
             let row = ui
                 .horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.label(RichText::new(if open { "▾" } else { "▸" }).font(mono.clone()).color(p.muted_text));
+                    super::icons::icon(ui, if open { super::icons::Icon::ChevronDown } else { super::icons::Icon::ChevronRight }, 11.0, p.muted_text);
                     ui.label(RichText::new(tool_icon(m.tool_name.as_deref())).font(mono.clone()).color(p.muted_text));
                     let reserve = if m.tool_result.is_none() || m.tool_failed { 22.0 } else { 0.0 };
                     let w = (ui.available_width() - reserve).max(40.0);
@@ -461,7 +461,7 @@ fn tool_row(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: 
                         spinner(ui);
                     }
                     if m.tool_failed {
-                        ui.label(RichText::new("✕").color(p.del_marker));
+                        super::icons::icon(ui, super::icons::Icon::Close, 12.0, p.del_marker);
                     }
                     ui.allocate_space(Vec2::new(ui.available_width(), 0.0));
                 })
@@ -483,7 +483,7 @@ fn tool_row(ui: &mut Ui, m: &DiscussMessage, expanded: &mut HashSet<String>, p: 
                     ui.set_width(ui.available_width());
                     egui::ScrollArea::both().id_salt(("tool-body", &m.id)).max_height(220.0).auto_shrink([false, true]).show(ui, |ui| {
                         egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
-                            ui.add(egui::Label::new(RichText::new(text).font(FontId::monospace(11.0)).color(p.text)).extend());
+                            ui.add(egui::Label::new(RichText::new(text).font(FontId::monospace(12.0)).color(p.text)).extend());
                         });
                     });
                 });

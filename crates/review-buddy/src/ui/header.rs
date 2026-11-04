@@ -30,15 +30,15 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
         ui.spacing_mut().item_spacing.x = 6.0;
         state_badge(ui, &d, &p);
         avatar(ui, &d.author, 18.0);
-        ui.label(RichText::new(&d.author).strong().size(12.0));
-        ui.label(RichText::new("wants to merge into").size(12.0).color(p.muted_text));
+        ui.label(RichText::new(&d.author).strong().size(13.0));
+        ui.label(RichText::new("wants to merge into").size(13.0).color(p.muted_text));
         branch(ui, &d.base_ref_name, &p);
-        ui.label(RichText::new("←").size(11.0).color(p.muted_text));
+        super::icons::icon(ui, super::icons::Icon::ArrowLeft, 12.0, p.muted_text);
         branch(ui, &d.head_ref_name, &p);
-        ui.label(RichText::new(format!("+{}", d.additions)).size(12.0).color(p.add_marker));
-        ui.label(RichText::new(format!("−{}", d.deletions)).size(12.0).color(p.del_marker));
+        ui.label(RichText::new(format!("+{}", d.additions)).size(13.0).color(p.add_marker));
+        ui.label(RichText::new(format!("−{}", d.deletions)).size(13.0).color(p.del_marker));
         let files = if d.changed_files == 1 { "1 file".to_string() } else { format!("{} files", d.changed_files) };
-        ui.label(RichText::new(files).size(12.0).color(p.muted_text));
+        ui.label(RichText::new(files).size(13.0).color(p.muted_text));
         // Right-aligned when there's room; otherwise they wrap onto the next line.
         let room = ui.available_width() > 260.0;
         let layout = if room { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
@@ -101,7 +101,7 @@ fn state_badge(ui: &mut Ui, d: &PRDetail, p: &Palette) {
 
 pub fn branch(ui: &mut Ui, name: &str, p: &Palette) {
     egui::Frame::new().fill(p.accent.gamma_multiply(0.1)).corner_radius(5).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
-        let r = ui.add(egui::Label::new(RichText::new(name).monospace().size(11.5).color(p.accent)).sense(egui::Sense::click()));
+        let r = ui.add(egui::Label::new(RichText::new(name).monospace().size(12.5).color(p.accent)).sense(egui::Sense::click()));
         if r.on_hover_text("Click to copy").clicked() {
             ui.ctx().copy_text(name.to_string());
         }
@@ -122,11 +122,11 @@ fn summary_card(ui: &mut Ui, store: &mut PRStore, mem: &mut HeaderMem, p: &Palet
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.horizontal(|ui| {
-                ui.label(RichText::new("✦ AI summary").strong().size(12.0).color(p.ai_accent));
+                super::icons::label(ui, "✦ AI summary", 13.0, p.ai_accent);
                 if let TaskState::Running(msg) = &store.summary_state {
                     spinner(ui);
-                    ui.label(RichText::new(msg).size(11.0).color(p.muted_text));
-                    if ui.link(RichText::new("Cancel").size(11.0)).clicked() {
+                    ui.label(RichText::new(msg).size(12.0).color(p.muted_text));
+                    if ui.link(RichText::new("Cancel").size(12.0)).clicked() {
                         store.cancel_summarize();
                     }
                 }
@@ -137,7 +137,7 @@ fn summary_card(ui: &mut Ui, store: &mut PRStore, mem: &mut HeaderMem, p: &Palet
                 }
                 if store.summary.is_some() {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let r = ui.add_enabled(!store.summary_state.is_running(), egui::Button::new("↻").frame(false)).on_hover_text("Regenerate");
+                        let r = super::icons::icon_button(ui, super::icons::Icon::Refresh, 13.0, p.muted_text, !store.summary_state.is_running()).on_hover_text("Regenerate");
                         if r.clicked() {
                             store.start_summarize();
                         }
@@ -145,7 +145,7 @@ fn summary_card(ui: &mut Ui, store: &mut PRStore, mem: &mut HeaderMem, p: &Palet
                 }
             });
             if let TaskState::Failed(e) = &store.summary_state {
-                ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+                ui.label(RichText::new(e).size(13.0).color(p.del_marker));
             }
             let Some(s) = store.summary.clone() else { return };
             let text = if mem.summary_expanded || s.summary.chars().count() <= 240 {
@@ -158,32 +158,32 @@ fn summary_card(ui: &mut Ui, store: &mut PRStore, mem: &mut HeaderMem, p: &Palet
                 mem.summary_expanded = !mem.summary_expanded;
             }
             if !s.reading_order.is_empty() {
-                ui.label(RichText::new("Suggested reading order").strong().size(11.0).color(p.muted_text));
+                ui.label(RichText::new("Suggested reading order").strong().size(12.0).color(p.muted_text));
                 let n = if mem.summary_expanded { 50 } else { 5 };
                 for (i, item) in s.reading_order.iter().take(n).enumerate() {
                     ui.horizontal(|ui| {
-                        ui.add_sized([18.0, 16.0], egui::Label::new(RichText::new(format!("{}.", i + 1)).size(12.0).color(p.muted_text)));
-                        if ui.add(egui::Label::new(RichText::new(&item.path).monospace().size(12.0).color(p.accent)).sense(egui::Sense::click())).clicked() {
+                        ui.add_sized([18.0, 16.0], egui::Label::new(RichText::new(format!("{}.", i + 1)).size(13.0).color(p.muted_text)));
+                        if ui.add(egui::Label::new(RichText::new(&item.path).monospace().size(13.0).color(p.accent)).sense(egui::Sense::click())).clicked() {
                             go_to = Some(item.path.clone());
                         }
-                        ui.add(egui::Label::new(RichText::new(format!("— {}", item.reason)).size(12.0).color(p.muted_text)).truncate());
+                        ui.add(egui::Label::new(RichText::new(format!("— {}", item.reason)).size(13.0).color(p.muted_text)).truncate());
                     });
                 }
             }
             if !s.risks.is_empty() {
-                ui.label(RichText::new("Risky areas").strong().size(11.0).color(p.muted_text));
+                ui.label(RichText::new("Risky areas").strong().size(12.0).color(p.muted_text));
                 let n = if mem.summary_expanded { 50 } else { 3 };
                 for r in s.risks.iter().take(n) {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("⚠").size(11.0).color(p.attention));
+                        ui.label(RichText::new("⚠").size(12.0).color(p.attention));
                         match &r.path {
                             Some(path) => {
-                                if ui.add(egui::Label::new(RichText::new(path).monospace().size(12.0).color(p.accent)).sense(egui::Sense::click())).clicked() {
+                                if ui.add(egui::Label::new(RichText::new(path).monospace().size(13.0).color(p.accent)).sense(egui::Sense::click())).clicked() {
                                     go_to = Some(path.clone());
                                 }
                             }
                             None => {
-                                ui.label(RichText::new("General").size(12.0).strong());
+                                ui.label(RichText::new("General").size(13.0).strong());
                             }
                         }
                     });
@@ -210,7 +210,7 @@ fn bar(ui: &mut Ui, tint: Color32, add: impl FnOnce(&mut Ui)) {
 fn git_status(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
     if store.is_outdated() {
         bar(ui, p.accent, |ui| {
-            ui.label(RichText::new("⟳ This pull request has new commits on GitHub.").size(12.0));
+            super::icons::label(ui, "⟳ This pull request has new commits on GitHub.", 13.0, ui.visuals().text_color());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if gh_button(ui, "Refresh", BtnKind::Primary, true).on_hover_text("Reload the diff and update the local checkout (⌘R)").clicked() {
                     store.refresh();
@@ -224,7 +224,7 @@ fn git_status(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
             let s = |n: usize| if n == 1 { "" } else { "s" };
             ui.label(
                 RichText::new(format!("⑂ The PR was updated on GitHub ({ahead} new commit{}) · you have {local} local fix commit{}", s(ahead), s(local)))
-                    .size(12.0),
+                    .size(13.0),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if gh_button(ui, "Rebase local commits", BtnKind::Default, true).clicked() {
@@ -239,13 +239,13 @@ fn git_status(ui: &mut Ui, store: &mut PRStore, p: &Palette) {
                     "⑂ The local checkout is {ahead} commit{} behind the PR: it has uncommitted changes, so it wasn't updated.",
                     if ahead == 1 { "" } else { "s" }
                 ))
-                .size(12.0),
+                .size(13.0),
             );
         });
     }
     if let WorktreeState::Failed(e) = store.worktree_state() {
         bar(ui, p.del_marker, |ui| {
-            ui.label(RichText::new(format!("⚠ Checkout failed: {e}")).size(12.0));
+            ui.label(RichText::new(format!("⚠ Checkout failed: {e}")).size(13.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if gh_button(ui, "Retry", BtnKind::Default, true).clicked() {
                     store.wt.set(WorktreeState::Idle);
@@ -277,7 +277,7 @@ fn banner(ui: &mut Ui, store: &mut PRStore, mem: &mut HeaderMem, p: &Palette) {
     let _ = Instant::now();
     let mut close = false;
     bar(ui, p.accent, |ui| {
-        ui.label(RichText::new(format!("ⓘ {text}")).size(12.0));
+        ui.label(RichText::new(format!("ⓘ {text}")).size(13.0));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.add(egui::Button::new("✕").frame(false)).clicked() {
                 close = true;

@@ -24,8 +24,8 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
         .show_separator_line(true)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                let open = ui
-                    .add(egui::Button::new(RichText::new("🔗 Open PR…").size(12.0).color(p.accent)).frame(false))
+                let look = crate::ui::icons::Look { fill: Color32::TRANSPARENT, fg: p.accent, stroke: Color32::TRANSPARENT, native: false, frame: false };
+                let open = crate::ui::icons::button(ui, "🔗 Open PR…", FontId::proportional(13.0), look, 22.0, true)
                     .on_hover_text("Open a pull request by URL");
                 if open.clicked() {
                     action = Some(Action::OpenUrl);
@@ -37,7 +37,7 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
                     }
                     if let Some(t) = state.inbox.last_refresh {
                         let d = chrono::Utc::now() - chrono::Duration::from_std(t.elapsed()).unwrap_or_default();
-                        ui.label(RichText::new(relative(&d)).size(10.0).color(p.muted_text));
+                        ui.label(RichText::new(relative(&d)).size(12.0).color(p.muted_text));
                     }
                 });
             });
@@ -59,11 +59,11 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
             }
             if let Some(e) = &section.error {
                 egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 10, top: 2, bottom: 4 }).show(ui, |ui| {
-                    ui.add(egui::Label::new(RichText::new(format!("⚠ {e}")).size(11.0).color(p.del_marker)).wrap());
+                    ui.add(egui::Label::new(RichText::new(format!("⚠ {e}")).size(12.0).color(p.del_marker)).wrap());
                 });
             } else if section.items.is_empty() && !section.is_loading {
                 egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 10, top: 2, bottom: 4 }).show(ui, |ui| {
-                    ui.label(RichText::new("Nothing here").size(11.0).color(p.muted_text));
+                    ui.label(RichText::new("Nothing here").size(12.0).color(p.muted_text));
                 });
             }
             let show_repo = !section.id.starts_with("repo:");
@@ -112,7 +112,7 @@ fn section_header(ui: &mut Ui, p: &Palette, title: &str, loading: bool, count: u
         };
         painter.add(Shape::line(pts, Stroke::new(1.5, p.muted_text)));
     }
-    let galley = painter.layout_no_wrap(title.to_string(), FontId::proportional(11.0), p.muted_text);
+    let galley = painter.layout_no_wrap(title.to_string(), FontId::proportional(12.0), p.muted_text);
     let tx = rect.left() + 18.0;
     let tw = galley.size().x;
     painter.galley(Pos2::new(tx, rect.center().y - galley.size().y / 2.0), galley, p.muted_text);
@@ -125,7 +125,7 @@ fn section_header(ui: &mut Ui, p: &Palette, title: &str, loading: bool, count: u
             Pos2::new(rect.right() - 10.0, rect.center().y),
             egui::Align2::RIGHT_CENTER,
             count.to_string(),
-            FontId::proportional(11.0),
+            FontId::proportional(12.0),
             p.muted_text,
         );
     }
@@ -158,14 +158,14 @@ fn inbox_row(ui: &mut Ui, p: &Palette, pr: &PRSummary, show_repo: bool, selected
                 pr_icon(ui, icon_rect, p.success);
             }
             ui.add(
-                egui::Label::new(RichText::new(&pr.title).size(12.0).strong().color(p.text))
+                egui::Label::new(RichText::new(&pr.title).size(13.0).strong().color(p.text))
                     .wrap_mode(egui::TextWrapMode::Wrap)
                     .selectable(false)
                     .halign(Align::Min),
             );
         });
         // repo#number · author ...... checks review
-        let small = |s: String| RichText::new(s).size(10.5).color(p.muted_text);
+        let small = |s: String| RichText::new(s).size(11.5).color(p.muted_text);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0;
             if pr.is_draft {
@@ -182,7 +182,7 @@ fn inbox_row(ui: &mut Ui, p: &Palette, pr: &PRSummary, show_repo: bool, selected
             });
         });
         // +adds −dels  💬 n ...... updated
-        let mono = |s: String, c: Color32| RichText::new(s).font(FontId::monospace(10.0)).color(c);
+        let mono = |s: String, c: Color32| RichText::new(s).font(FontId::monospace(11.0)).color(c);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.add(egui::Label::new(mono(format!("+{}", pr.additions), p.add_marker)).selectable(false));
@@ -193,7 +193,7 @@ fn inbox_row(ui: &mut Ui, p: &Palette, pr: &PRSummary, show_repo: bool, selected
                 ui.add(egui::Label::new(mono(pr.comment_count.to_string(), p.muted_text)).selectable(false));
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add(egui::Label::new(mono(relative(&pr.updated_at), p.muted_text)).selectable(false));
+                ui.add(egui::Label::new(small(relative(&pr.updated_at))).selectable(false));
             });
         });
         ui.add_space(inner.bottom as f32);
@@ -318,27 +318,5 @@ fn bubble_icon(ui: &Ui, r: Rect, color: Color32) {
 
 /// Borderless circular-arrow button.
 fn refresh_button(ui: &mut Ui, p: &Palette) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
-    let color = if resp.hovered() { p.text } else { p.muted_text };
-    let painter = ui.painter();
-    let c = r.center();
-    let rad = 5.5;
-    let start = -std::f32::consts::FRAC_PI_2 + 0.5;
-    let end = start + std::f32::consts::TAU - 1.0;
-    let pts: Vec<Pos2> = (0..=20).map(|k| {
-        let a = start + (end - start) * k as f32 / 20.0;
-        c + Vec2::new(a.cos(), a.sin()) * rad
-    }).collect();
-    painter.add(Shape::line(pts, Stroke::new(1.4, color)));
-    // Arrow head at the end of the arc, pointing clockwise.
-    let tip = c + Vec2::new(end.cos(), end.sin()) * rad;
-    let tangent = Vec2::new(-end.sin(), end.cos());
-    let normal = Vec2::new(end.cos(), end.sin());
-    let back = tip - tangent * 3.2;
-    painter.add(Shape::convex_polygon(
-        vec![tip + tangent * 1.2, back + normal * 2.4, back - normal * 2.4],
-        color,
-        Stroke::NONE,
-    ));
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    crate::ui::icons::icon_button(ui, crate::ui::icons::Icon::Refresh, 13.0, p.muted_text, true)
 }

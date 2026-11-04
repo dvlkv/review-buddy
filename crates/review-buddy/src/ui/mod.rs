@@ -1,11 +1,13 @@
 //! egui views: window layout, toolbar, keyboard, sheets.
 
+pub mod avatars;
 pub mod blocks;
 pub mod common;
 pub mod diff_canvas;
 pub mod discuss_panel;
 pub mod file_tree_view;
 pub mod header;
+pub mod icons;
 pub mod markdown;
 pub mod overview;
 pub mod script;
@@ -111,34 +113,44 @@ impl ReviewBuddyApp {
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    // Prefer the system UI and monospace fonts when available; keep egui's as fallbacks.
-    let candidates = [
-        ("sf", "/System/Library/Fonts/SFNS.ttf", egui::FontFamily::Proportional),
-        ("helvetica", "/System/Library/Fonts/Helvetica.ttc", egui::FontFamily::Proportional),
-        ("menlo", "/System/Library/Fonts/Menlo.ttc", egui::FontFamily::Monospace),
-        ("sfmono", "/System/Library/Fonts/SFNSMono.ttf", egui::FontFamily::Monospace),
-    ];
-    let mut used = std::collections::HashSet::new();
-    for (name, path, family) in candidates {
-        if used.contains(&family) {
-            continue;
-        }
-        if let Ok(bytes) = std::fs::read(path) {
-            fonts.font_data.insert(name.into(), Arc::new(egui::FontData::from_owned(bytes)));
-            fonts.families.entry(family.clone()).or_default().insert(0, name.into());
-            used.insert(family);
+    // The system UI font and SF Mono, so text matches other macOS apps. Fallbacks come next
+    // (Apple's symbol and Unicode fonts) and egui's bundled fonts last, so a missing glyph
+    // never switches the whole run to a font that looks different.
+    let load = |path: &str| std::fs::read(path).ok().map(|b| Arc::new(egui::FontData::from_owned(b)));
+    let mut prop: Vec<String> = Vec::new();
+    let mut mono: Vec<String> = Vec::new();
+    if let Some(d) = load("/System/Library/Fonts/SFNS.ttf").or_else(|| load("/System/Library/Fonts/Helvetica.ttc")) {
+        fonts.font_data.insert("ui".into(), d);
+        prop.push("ui".into());
+    }
+    if let Some(d) = load("/System/Library/Fonts/SFNSMono.ttf").or_else(|| load("/System/Library/Fonts/Menlo.ttc")) {
+        fonts.font_data.insert("mono".into(), d);
+        mono.push("mono".into());
+    }
+    for (name, path) in [("symbols", "/System/Library/Fonts/Apple Symbols.ttf"), ("unicode", "/Library/Fonts/Arial Unicode.ttf")] {
+        if let Some(d) = load(path) {
+            fonts.font_data.insert(name.into(), d);
+            prop.push(name.into());
+            mono.push(name.into());
         }
     }
-    // Symbols and non-Latin text.
-    for (name, path) in [("symbols", "/System/Library/Fonts/Apple Symbols.ttf"), ("unicode", "/Library/Fonts/Arial Unicode.ttf")] {
-        if let Ok(bytes) = std::fs::read(path) {
-            fonts.font_data.insert(name.into(), Arc::new(egui::FontData::from_owned(bytes)));
-            for fam in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-                fonts.families.entry(fam).or_default().push(name.into());
-            }
-        }
+    for (fam, mut first) in [(egui::FontFamily::Proportional, prop), (egui::FontFamily::Monospace, mono)] {
+        let list = fonts.families.entry(fam).or_default();
+        first.append(list);
+        *list = first;
     }
     ctx.set_fonts(fonts);
+    ctx.global_style_mut(|s| {
+        use egui::{FontFamily::*, FontId, TextStyle};
+        s.text_styles = [
+            (TextStyle::Small, FontId::new(11.0, Proportional)),
+            (TextStyle::Body, FontId::new(13.0, Proportional)),
+            (TextStyle::Button, FontId::new(13.0, Proportional)),
+            (TextStyle::Heading, FontId::new(18.0, Proportional)),
+            (TextStyle::Monospace, FontId::new(12.0, Monospace)),
+        ]
+        .into();
+    });
 }
 
 impl eframe::App for ReviewBuddyApp {
@@ -246,19 +258,19 @@ impl ReviewBuddyApp {
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let p = pal(ui);
         ui.horizontal(|ui| {
-            if ui.button("☰").on_hover_text("Toggle inbox (⌃⌘S)").clicked() {
+            if icons::tool_button(ui, "☰").on_hover_text("Toggle inbox (⌃⌘S)").clicked() {
                 self.state.ui.show_sidebar = !self.state.ui.show_sidebar;
             }
             let title = self.state.current_pr().and_then(|s| s.detail.as_ref().map(|d| d.title.clone())).unwrap_or_else(|| "Review Buddy".into());
-            ui.label(RichText::new(title).strong().size(13.0));
+            ui.label(RichText::new(title).strong().size(14.0));
             if let Some(r) = &self.state.current {
-                ui.label(RichText::new(r.to_string()).size(12.0).color(p.muted_text));
+                ui.label(RichText::new(r.to_string()).size(13.0).color(p.muted_text));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("◨ Discuss").on_hover_text("Toggle Discuss panel (⌘\\)").clicked() {
+                if icons::tool_button(ui, "◨ Discuss").on_hover_text("Toggle Discuss panel (⌘\\)").clicked() {
                     self.state.ui.show_discuss_panel = !self.state.ui.show_discuss_panel;
                 }
-                if ui.button("⚙").on_hover_text("Settings (⌘,)").clicked() {
+                if icons::tool_button(ui, "⚙").on_hover_text("Settings (⌘,)").clicked() {
                     self.state.ui.show_settings = true;
                 }
                 let has_diff = self.state.current_pr().map(|s| s.diff.is_some()).unwrap_or(false);
@@ -271,7 +283,7 @@ impl ReviewBuddyApp {
                 if gh_button(ui, &label, BtnKind::Primary, true).on_hover_text("Finish your review").clicked() {
                     self.state.ui.show_submit_review = !self.state.ui.show_submit_review;
                 }
-                if n > 0 && ui.button(format!("⬆ {n} local")).on_hover_text("Push fix commits to the PR branch").clicked() {
+                if n > 0 && icons::tool_button(ui, &format!("⬆ {n} local")).on_hover_text("Push fix commits to the PR branch").clicked() {
                     self.state.ui.show_push_sheet = true;
                 }
                 let mut new_mode = mode;
@@ -290,7 +302,7 @@ impl ReviewBuddyApp {
             ui.centered_and_justified(|ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 3.0);
-                    ui.label(RichText::new("No pull request selected").size(18.0).strong());
+                    ui.label(RichText::new("No pull request selected").size(19.0).strong());
                     ui.label(RichText::new("Pick a PR from the inbox, or press ⌘L to open one by URL.").color(p.muted_text));
                     if ui.button("Open by URL…").clicked() {
                         self.state.ui.show_open_url = true;
@@ -304,7 +316,7 @@ impl ReviewBuddyApp {
             LoadState::Failed(e) if s.diff.is_none() => {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 3.0);
-                    ui.label(RichText::new(format!("⚠ Couldn't load {r}")).size(16.0).strong());
+                    ui.label(RichText::new(format!("⚠ Couldn't load {r}")).size(17.0).strong());
                     ui.label(RichText::new(e).color(p.muted_text));
                     if ui.button("Retry").clicked() {
                         s.load();
@@ -453,7 +465,7 @@ impl ReviewBuddyApp {
         let m = egui::Modal::new(egui::Id::new("open_url")).show(ctx, |ui| {
             let p = pal(ui);
             ui.set_width(480.0);
-            ui.label(RichText::new("Open pull request").size(15.0).strong());
+            ui.label(RichText::new("Open pull request").size(16.0).strong());
             let r = ui.add(
                 egui::TextEdit::singleline(&mut self.view.open_url_text)
                     .hint_text("https://github.com/owner/repo/pull/123  or  owner/repo#123")
@@ -464,7 +476,7 @@ impl ReviewBuddyApp {
                 open = true;
             }
             if let Some(e) = &self.view.open_url_error {
-                ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+                ui.label(RichText::new(e).size(13.0).color(p.del_marker));
             }
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -537,7 +549,7 @@ impl ReviewBuddyApp {
         let m = egui::Modal::new(egui::Id::new("palette")).show(ctx, |ui| {
             let p = pal(ui);
             ui.set_width(560.0);
-            let r = ui.add(egui::TextEdit::singleline(&mut self.view.palette_query).hint_text("Type a command, file or PR…").desired_width(f32::INFINITY).font(egui::FontId::proportional(15.0)));
+            let r = ui.add(egui::TextEdit::singleline(&mut self.view.palette_query).hint_text("Type a command, file or PR…").desired_width(f32::INFINITY).font(egui::FontId::proportional(16.0)));
             r.request_focus();
             if r.changed() {
                 self.view.palette_selected = 0;
@@ -566,12 +578,12 @@ impl ReviewBuddyApp {
                                 ui.vertical(|ui| {
                                     ui.label(&it.0);
                                     if let Some(s) = &it.1 {
-                                        ui.label(RichText::new(s).size(11.0).color(p.muted_text));
+                                        ui.label(RichText::new(s).size(12.0).color(p.muted_text));
                                     }
                                 });
                                 if let Some(k) = it.2 {
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        ui.label(RichText::new(k).monospace().size(11.0).color(p.muted_text));
+                                        ui.label(RichText::new(k).monospace().size(12.0).color(p.muted_text));
                                     });
                                 }
                             });
@@ -618,7 +630,7 @@ impl ReviewBuddyApp {
         let m = egui::Modal::new(egui::Id::new("push")).show(ctx, |ui| {
             let p = pal(ui);
             ui.set_width(520.0);
-            ui.label(RichText::new("Push fix commits").size(15.0).strong());
+            ui.label(RichText::new("Push fix commits").size(16.0).strong());
             if let Some(d) = &s.detail {
                 ui.label(
                     RichText::new(format!(
@@ -626,7 +638,7 @@ impl ReviewBuddyApp {
                         d.head_ref_name,
                         d.head_repo_name_with_owner.clone().unwrap_or_else(|| d.pr_ref.name_with_owner())
                     ))
-                    .size(12.0)
+                    .size(13.0)
                     .color(p.muted_text),
                 );
             }
@@ -635,23 +647,23 @@ impl ReviewBuddyApp {
                 for c in &s.local_commits {
                     egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(c.short_sha()).monospace().size(12.0).color(p.accent));
-                            ui.label(RichText::new(&c.subject).size(12.0));
+                            ui.label(RichText::new(c.short_sha()).monospace().size(13.0).color(p.accent));
+                            ui.label(RichText::new(&c.subject).size(13.0));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(RichText::new(&c.author).size(12.0).color(p.muted_text));
+                                ui.label(RichText::new(&c.author).size(13.0).color(p.muted_text));
                             });
                         });
                     });
                 }
             });
             if let Some(r) = s.push_disabled_reason() {
-                ui.label(RichText::new(format!("🔒 {r}")).size(12.0).color(p.del_marker));
+                ui.label(RichText::new(format!("🔒 {r}")).size(13.0).color(p.del_marker));
             }
             if let TaskState::Failed(e) = &s.push_state {
-                ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+                ui.label(RichText::new(e).size(13.0).color(p.del_marker));
             }
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Never force-pushes.").size(11.0).color(p.muted_text));
+                ui.label(RichText::new("Never force-pushes.").size(12.0).color(p.muted_text));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let n = s.local_commits.len();
                     let ok = s.can_push() && n > 0 && !s.push_state.is_running();
@@ -687,7 +699,7 @@ impl ReviewBuddyApp {
         let m = egui::Modal::new(egui::Id::new("submit_review")).show(ctx, |ui| {
             let p = pal(ui);
             ui.set_width(420.0);
-            ui.label(RichText::new("Finish your review").size(14.0).strong());
+            ui.label(RichText::new("Finish your review").size(15.0).strong());
             ui.add(egui::TextEdit::multiline(&mut s.review_body).desired_rows(5).desired_width(f32::INFINITY).hint_text("Leave a comment"));
             let own = s.detail.as_ref().map(|d| d.author == d.viewer_login).unwrap_or(false);
             for (e, detail) in [
@@ -698,15 +710,15 @@ impl ReviewBuddyApp {
                 let enabled = e == ReviewEvent::Comment || !own;
                 ui.add_enabled_ui(enabled, |ui| {
                     ui.radio_value(event, e, RichText::new(e.title()).strong());
-                    ui.label(RichText::new(detail).size(11.5).color(p.muted_text));
+                    ui.label(RichText::new(detail).size(12.5).color(p.muted_text));
                 });
             }
             if let TaskState::Failed(e) = &s.submit_state {
-                ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+                ui.label(RichText::new(e).size(13.0).color(p.del_marker));
             }
             ui.horizontal(|ui| {
                 let n = s.pending_comment_count();
-                ui.label(RichText::new(format!("{n} pending comment{}", if n == 1 { "" } else { "s" })).size(12.0).color(p.muted_text));
+                ui.label(RichText::new(format!("{n} pending comment{}", if n == 1 { "" } else { "s" })).size(13.0).color(p.muted_text));
                 if s.pending_review_id.is_some() && gh_button(ui, "Discard", BtnKind::Danger, true).clicked() {
                     s.discard_pending_review();
                     close = true;

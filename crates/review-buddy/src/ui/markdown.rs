@@ -125,7 +125,7 @@ fn cell(ui: &mut Ui, text: &str, align: Option<TableAlignment>, size: f32, color
 fn code_block(ui: &mut Ui, text: &str, lang: Option<&str>, p: &Palette) {
     egui::Frame::new().fill(p.subtle).corner_radius(6).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let font = FontId::monospace(12.0);
+        let font = FontId::monospace(13.0);
         let mut job = LayoutJob::default();
         let is_diff = matches!(lang, Some("diff") | Some("patch"));
         let spec = lang.map(|l| LanguageRegistry::language_for_path(&format!("x.{l}")));

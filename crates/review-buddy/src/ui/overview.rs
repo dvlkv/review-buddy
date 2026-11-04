@@ -199,7 +199,7 @@ fn header(ui: &mut Ui, store: &PRStore, state: &mut OverviewState, actions: &mut
             ui.add_space(4.0);
             let p = pal(ui);
             state_badge(ui, d, &p);
-            ui.add(egui::Label::new(RichText::new(&d.title).size(14.0).strong().color(p.text)).truncate());
+            ui.add(egui::Label::new(RichText::new(&d.title).size(15.0).strong().color(p.text)).truncate());
         }
     });
 }
@@ -216,7 +216,7 @@ fn segmented(ui: &mut Ui, value: &mut Tab, options: &[(Tab, String)]) {
             ui.spacing_mut().item_spacing.x = 2.0;
             for (tab, label) in options {
                 let selected = *value == *tab;
-                let btn = egui::Button::new(RichText::new(label).size(12.0).color(p.text))
+                let btn = egui::Button::new(RichText::new(label).size(13.0).color(p.text))
                     .fill(if selected { p.canvas } else { Color32::TRANSPARENT })
                     .stroke(Stroke::new(1.0, if selected { p.border } else { Color32::TRANSPARENT }))
                     .corner_radius(CornerRadius::same(5))
@@ -250,8 +250,8 @@ fn outdated_bar(ui: &mut Ui, store: &PRStore, p: &Palette, actions: &mut Vec<Act
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(RichText::new("⟳").color(p.accent));
-                ui.label(RichText::new("This pull request has new commits on GitHub.").size(12.0).color(p.text));
+                super::icons::icon(ui, super::icons::Icon::Refresh, 13.0, p.accent);
+                ui.label(RichText::new("This pull request has new commits on GitHub.").size(13.0).color(p.text));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if gh_button(ui, "Refresh", BtnKind::Primary, true)
                         .on_hover_text("Reload the diff and update the local checkout (⌘R)")
@@ -280,14 +280,14 @@ fn pre_review_card(ui: &mut Ui, store: &PRStore, p: &Palette, actions: &mut Vec<
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 ui.label(RichText::new("✨").color(p.ai_accent));
-                ui.label(RichText::new("AI pre-review").size(13.0).strong().color(p.ai_accent));
+                ui.label(RichText::new("AI pre-review").size(14.0).strong().color(p.ai_accent));
                 match &store.pre_review_state {
                     TaskState::Running(m) => {
                         spinner(ui);
-                        ui.label(RichText::new(m).size(11.0).color(p.muted_text));
+                        ui.label(RichText::new(m).size(12.0).color(p.muted_text));
                     }
                     _ if !open.is_empty() => {
-                        ui.label(RichText::new(format!("{} open", open.len())).size(11.0).color(p.muted_text));
+                        ui.label(RichText::new(format!("{} open", open.len())).size(12.0).color(p.muted_text));
                     }
                     _ => {}
                 }
@@ -308,7 +308,7 @@ fn pre_review_card(ui: &mut Ui, store: &PRStore, p: &Palette, actions: &mut Vec<
                 });
             });
             if let TaskState::Failed(e) = &store.pre_review_state {
-                ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+                ui.label(RichText::new(e).size(13.0).color(p.del_marker));
             }
             if !open.is_empty() {
                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -327,12 +327,12 @@ fn pre_review_card(ui: &mut Ui, store: &PRStore, p: &Palette, actions: &mut Vec<
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.label(
                                     RichText::new(format!("{file}:{}", f.start_line))
-                                        .font(FontId::monospace(11.0))
+                                        .font(FontId::monospace(12.0))
                                         .color(p.accent),
                                 );
                                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                     ui.add(
-                                        egui::Label::new(RichText::new(&f.title).size(12.0).color(p.text))
+                                        egui::Label::new(RichText::new(&f.title).size(13.0).color(p.text))
                                             .truncate()
                                             .selectable(false),
                                     );
@@ -346,7 +346,7 @@ fn pre_review_card(ui: &mut Ui, store: &PRStore, p: &Palette, actions: &mut Vec<
                     }
                 }
             } else if !running && !store.findings.is_empty() {
-                ui.label(RichText::new("All findings handled.").size(12.0).color(p.muted_text));
+                ui.label(RichText::new("All findings handled.").size(13.0).color(p.muted_text));
             }
         });
 }
@@ -409,7 +409,7 @@ fn timeline(ui: &mut Ui, store: &PRStore, p: &Palette, actions: &mut Vec<Action>
         if conv.is_none() {
             ui.label(
                 RichText::new("Comments, reviews and commits load with the pull request. Refresh (⌘R) to fetch them.")
-                    .size(12.0)
+                    .size(13.0)
                     .color(p.muted_text),
             );
         }
@@ -434,8 +434,8 @@ fn entry(ui: &mut Ui, p: &Palette, author: &str, caption: &str, content: impl Fn
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 6.0;
-                            ui.label(RichText::new(author).size(12.0).strong().color(p.text));
-                            ui.label(RichText::new(caption).size(12.0).color(p.muted_text));
+                            ui.label(RichText::new(author).size(13.0).strong().color(p.text));
+                            ui.label(RichText::new(caption).size(13.0).color(p.muted_text));
                         });
                     });
                 hline(ui, p.border);
@@ -469,8 +469,8 @@ fn review_entry(ui: &mut Ui, p: &Palette, r: &ConversationReview) {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(28.0, 18.0), Sense::hover());
             review_icon(ui, rect.center(), &r.state, p);
             avatar(ui, &r.author, 18.0);
-            ui.label(RichText::new(&r.author).size(12.0).strong().color(p.text));
-            ui.label(RichText::new(caption).size(12.0).color(p.muted_text));
+            ui.label(RichText::new(&r.author).size(13.0).strong().color(p.text));
+            ui.label(RichText::new(caption).size(13.0).color(p.muted_text));
         });
     } else {
         entry(ui, p, &r.author, &caption, |ui| {
@@ -504,7 +504,7 @@ fn thread_entry(ui: &mut Ui, p: &Palette, t: &ReviewThread, actions: &mut Vec<Ac
             let link = ui
                 .add(
                     egui::Label::new(
-                        RichText::new(format!("{}:{}", t.path, t.anchor_line())).font(FontId::monospace(12.0)).color(p.accent),
+                        RichText::new(format!("{}:{}", t.path, t.anchor_line())).font(FontId::monospace(13.0)).color(p.accent),
                     )
                     .sense(Sense::click())
                     .selectable(false),
@@ -528,7 +528,7 @@ fn thread_entry(ui: &mut Ui, p: &Palette, t: &ReviewThread, actions: &mut Vec<Ac
         if t.comments.len() > 1 {
             let n = t.comments.len() - 1;
             let text = if n == 1 { "1 reply".to_string() } else { format!("{n} replies") };
-            ui.label(RichText::new(text).size(12.0).color(p.muted_text));
+            ui.label(RichText::new(text).size(13.0).color(p.muted_text));
         }
     });
 }
@@ -556,7 +556,7 @@ fn commit_list(ui: &mut Ui, store: &PRStore, p: &Palette) {
         }
         if commits.is_empty() && store.local_commits.is_empty() {
             egui::Frame::new().inner_margin(Margin::same(12)).show(ui, |ui| {
-                ui.label(RichText::new("No commits loaded.").size(12.0).color(p.muted_text));
+                ui.label(RichText::new("No commits loaded.").size(13.0).color(p.muted_text));
             });
         }
     });
@@ -571,7 +571,7 @@ fn commit_row(ui: &mut Ui, p: &Palette, sha: &str, headline: &str, author: &str,
             avatar(ui, author, 18.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let short: String = sha.chars().take(7).collect();
-                ui.add(egui::Label::new(RichText::new(short).font(FontId::monospace(11.0)).color(p.muted_text)))
+                ui.add(egui::Label::new(RichText::new(short).font(FontId::monospace(12.0)).color(p.muted_text)))
                     .on_hover_text(sha);
                 let (rect, resp) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
                 match checks {
@@ -594,12 +594,12 @@ fn commit_row(ui: &mut Ui, p: &Palette, sha: &str, headline: &str, author: &str,
                 }
                 ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.add(egui::Label::new(RichText::new(headline).size(13.0).color(p.text).strong()).truncate());
+                    ui.add(egui::Label::new(RichText::new(headline).size(14.0).color(p.text).strong()).truncate());
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
-                        ui.label(RichText::new(author).size(11.0).strong().color(p.muted_text));
+                        ui.label(RichText::new(author).size(12.0).strong().color(p.muted_text));
                         if let Some(d) = date {
-                            ui.label(RichText::new(format!("committed {}", relative(d))).size(11.0).color(p.muted_text));
+                            ui.label(RichText::new(format!("committed {}", relative(d))).size(12.0).color(p.muted_text));
                         }
                     });
                 });
@@ -643,9 +643,9 @@ fn status_row(ui: &mut Ui, p: &Palette, ic: Icon, color: Color32, title: &str, d
                 icon(ui, rect.center(), ic, color, 18.0);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(RichText::new(title).size(13.0).strong().color(p.text));
+                    ui.label(RichText::new(title).size(14.0).strong().color(p.text));
                     if let Some(detail) = detail {
-                        ui.label(RichText::new(detail).size(12.0).color(p.muted_text));
+                        ui.label(RichText::new(detail).size(13.0).color(p.muted_text));
                     }
                 });
             });
@@ -714,7 +714,7 @@ fn checks_section(ui: &mut Ui, checks: &[MergeCheck], hide: &mut bool, p: &Palet
         egui::pos2(resp.rect.right() - 16.0, resp.rect.center().y),
         egui::Align2::CENTER_CENTER,
         chevron,
-        FontId::proportional(12.0),
+        FontId::proportional(13.0),
         p.muted_text,
     );
     let resp = resp.interact(Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -745,15 +745,15 @@ fn checks_section(ui: &mut Ui, checks: &[MergeCheck], hide: &mut bool, p: &Palet
                         } else {
                             icon(ui, rect.center(), Icon::Cross, p.del_marker, 14.0);
                         }
-                        ui.label(RichText::new(&c.name).size(12.0).strong().color(p.text));
+                        ui.label(RichText::new(&c.name).size(13.0).strong().color(p.text));
                         if let Some(app) = &c.app {
-                            ui.label(RichText::new(app).size(12.0).color(p.muted_text));
+                            ui.label(RichText::new(app).size(13.0).color(p.muted_text));
                         }
                         if let Some(url) = &c.url {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let r = ui
                                     .add(
-                                        egui::Label::new(RichText::new("Details").size(12.0).color(p.accent))
+                                        egui::Label::new(RichText::new("Details").size(13.0).color(p.accent))
                                             .sense(Sense::click())
                                             .selectable(false),
                                     )
@@ -845,7 +845,7 @@ fn merge_button(ui: &mut Ui, store: &PRStore, st: &PRMergeStatus, state: &mut Ov
                 state.shared.lock().unwrap().confirming = false;
             }
             let base = store.detail.as_ref().map_or("base", |d| d.base_ref_name.as_str());
-            ui.label(RichText::new(format!("Merges #{} into {base} on GitHub.", store.pr_ref.number)).size(12.0).color(p.muted_text));
+            ui.label(RichText::new(format!("Merges #{} into {base} on GitHub.", store.pr_ref.number)).size(13.0).color(p.muted_text));
         });
     } else {
         ui.horizontal(|ui| {
@@ -874,23 +874,23 @@ fn merge_button(ui: &mut Ui, store: &PRStore, st: &PRMergeStatus, state: &mut Ov
             ui.add_space(8.0);
             if !can_merge && !can_bypass {
                 let why = if st.mergeable == "CONFLICTING" { "Resolve conflicts first." } else { "Not mergeable yet." };
-                ui.label(RichText::new(why).size(12.0).color(p.muted_text));
+                ui.label(RichText::new(why).size(13.0).color(p.muted_text));
             }
         });
         if can_bypass {
             ui.checkbox(
                 &mut state.bypass,
-                RichText::new("Merge without waiting for requirements to be met (bypass rules)").size(12.0),
+                RichText::new("Merge without waiting for requirements to be met (bypass rules)").size(13.0),
             );
         }
     }
     if let Some(e) = error {
-        ui.label(RichText::new(format!("{e} Refresh (⌘R) and try again.")).size(12.0).color(p.del_marker));
+        ui.label(RichText::new(format!("{e} Refresh (⌘R) and try again.")).size(13.0).color(p.del_marker));
     }
 }
 
 fn filled_button(ui: &mut Ui, text: &str, color: Color32, enabled: bool, radius: CornerRadius) -> egui::Response {
-    let btn = egui::Button::new(RichText::new(text).size(12.0).strong().color(Color32::WHITE))
+    let btn = egui::Button::new(RichText::new(text).size(13.0).strong().color(Color32::WHITE))
         .fill(if enabled { color } else { color.gamma_multiply(0.5) })
         .stroke(Stroke::NONE)
         .corner_radius(radius)
@@ -910,10 +910,10 @@ fn comment_composer(ui: &mut Ui, store: &PRStore, state: &mut OverviewState, p: 
     };
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
-        ui.label(RichText::new("Add a comment").size(13.0).strong().color(p.text));
+        ui.label(RichText::new("Add a comment").size(14.0).strong().color(p.text));
         let edit = egui::TextEdit::multiline(&mut state.comment)
             .hint_text("Leave a comment (Markdown)")
-            .font(FontId::proportional(13.0))
+            .font(FontId::proportional(14.0))
             .desired_width(f32::INFINITY)
             .desired_rows(5)
             .background_color(p.canvas)
@@ -929,10 +929,10 @@ fn comment_composer(ui: &mut Ui, store: &PRStore, state: &mut OverviewState, p: 
         let submit_key = resp.has_focus()
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter));
         if let Some(e) = error {
-            ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+            ui.label(RichText::new(e).size(13.0).color(p.del_marker));
         }
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Posted to GitHub right away, outside your review.").size(11.0).color(p.muted_text));
+            ui.label(RichText::new("Posted to GitHub right away, outside your review.").size(12.0).color(p.muted_text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 if posting {

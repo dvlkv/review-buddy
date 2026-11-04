@@ -47,7 +47,7 @@ fn thread_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     if t.is_resolved {
-                        ui.label(RichText::new("✓ Resolved").strong().size(12.0));
+                        super::icons::label(ui, "✓ Resolved", 13.0, ui.visuals().text_color());
                     }
                     if t.is_outdated {
                         pill(ui, "Outdated", p.attention, false);
@@ -55,7 +55,7 @@ fn thread_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                     if collapsed {
                         if let Some(first) = t.comments.first() {
                             let w = (ui.available_width() - 60.0).max(40.0);
-                            let text = RichText::new(format!("@{}: {}", first.author, first.body.replace('\n', " "))).size(12.0).color(p.muted_text);
+                            let text = RichText::new(format!("@{}: {}", first.author, first.body.replace('\n', " "))).size(13.0).color(p.muted_text);
                             ui.allocate_ui_with_layout(egui::vec2(w, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                 ui.add(egui::Label::new(text).truncate());
                             });
@@ -111,8 +111,8 @@ fn comment_view(ui: &mut Ui, store: &mut PRStore, t: &ReviewThread, c: &ReviewCo
         ui.spacing_mut().item_spacing.y = 6.0;
         ui.horizontal(|ui| {
             avatar(ui, &c.author, 20.0);
-            ui.label(RichText::new(&c.author).strong().size(12.0));
-            ui.label(RichText::new(relative(&c.created_at)).size(12.0).color(p.muted_text));
+            ui.label(RichText::new(&c.author).strong().size(13.0));
+            ui.label(RichText::new(relative(&c.created_at)).size(13.0).color(p.muted_text));
             if c.is_pending {
                 pill(ui, "Pending", p.attention, false);
             }
@@ -166,7 +166,7 @@ fn composer_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                     } else {
                         format!("Commenting on line {s}{}", a.start_line)
                     };
-                    ui.label(RichText::new(text).size(12.0).color(p.muted_text));
+                    ui.label(RichText::new(text).size(13.0).color(p.muted_text));
                     if let Some(o) = &c.origin {
                         pill(ui, o, p.ai_accent, false);
                     }
@@ -230,7 +230,7 @@ pub fn inline_composer(ui: &mut Ui, store: &mut PRStore, c: &Composer, placehold
                     .hint_text(placeholder)
                     .desired_rows(rows)
                     .desired_width(f32::INFINITY)
-                    .font(egui::FontId::proportional(13.0)),
+                    .font(egui::FontId::proportional(14.0)),
             );
             if c.wants_focus {
                 r.request_focus();
@@ -250,11 +250,11 @@ pub fn inline_composer(ui: &mut Ui, store: &mut PRStore, c: &Composer, placehold
             }
         }
         if let Some(e) = &c.error {
-            ui.label(RichText::new(e).size(12.0).color(p.del_marker));
+            ui.label(RichText::new(e).size(13.0).color(p.del_marker));
         }
         ui.horizontal(|ui| {
             let hint = if offers_single { "Markdown · ⌘↩ review · ⇧⌘↩ single" } else { "Markdown supported · ⌘↩ to submit" };
-            ui.label(RichText::new(hint).size(11.0).color(p.muted_text));
+            ui.label(RichText::new(hint).size(12.0).color(p.muted_text));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let ok = !text.trim().is_empty() && !c.is_submitting;
                 if c.is_submitting {
@@ -299,9 +299,9 @@ fn discuss_marker(ui: &mut Ui, store: &mut PRStore, id: &str) -> Option<BlockAct
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(RichText::new("✦ Discuss").strong().size(12.0).color(p.ai_accent));
+                super::icons::label(ui, "✦ Discuss", 13.0, p.ai_accent);
                 let title = if t.messages.is_empty() { format!("New conversation — ask Claude about {}", t.anchor.label()) } else { t.title() };
-                ui.add(egui::Label::new(RichText::new(title).size(12.0).color(p.text)).truncate());
+                ui.add(egui::Label::new(RichText::new(title).size(13.0).color(p.text)).truncate());
                 if t.status == DiscussStatus::Outdated {
                     pill(ui, "Outdated", p.attention, false);
                 }
@@ -311,7 +311,7 @@ fn discuss_marker(ui: &mut Ui, store: &mut PRStore, id: &str) -> Option<BlockAct
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let n = t.messages.iter().filter(|m| m.role == Role::User || m.role == Role::Assistant).count();
                     if n > 0 {
-                        ui.label(RichText::new(format!("{n} messages")).size(12.0).color(p.muted_text));
+                        ui.label(RichText::new(format!("{n} messages")).size(13.0).color(p.muted_text));
                     }
                     if running {
                         spinner(ui);
@@ -361,13 +361,13 @@ fn finding_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 8.0;
         ui.horizontal(|ui| {
-            ui.label(RichText::new("✦ AI pre-review").strong().size(11.0).color(p.ai_accent));
+            super::icons::label(ui, "✦ AI pre-review", 12.0, p.ai_accent);
             severity_pill(ui, f.severity);
             if outdated {
                 pill(ui, "Outdated", p.attention, false).on_hover_text("The PR changed since this pre-review ran");
             }
         });
-        ui.label(RichText::new(&f.title).strong().size(13.0).color(p.text));
+        ui.label(RichText::new(&f.title).strong().size(14.0).color(p.text));
         markdown(ui, &f.body, &[]);
         if let Some(s) = &f.suggestion {
             let old = store.lines_for(&f.anchor());
@@ -386,7 +386,7 @@ fn finding_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                 store.dismiss_finding(id);
             }
             if !compact {
-                ui.label(RichText::new("Private — only you can see this").size(11.0).color(p.muted_text));
+                ui.label(RichText::new("Private — only you can see this").size(12.0).color(p.muted_text));
             }
         });
     });

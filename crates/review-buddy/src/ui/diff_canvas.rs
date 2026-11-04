@@ -711,14 +711,14 @@ fn placeholder(ui: &Ui, painter: &egui::Painter, store: &mut PRStore, p: &Palett
     painter.rect_filled(rect, 0.0, p.canvas);
     let can_load = matches!(reason, PlaceholderReason::Large | PlaceholderReason::Generated);
     let y = if can_load { rect.center().y - 9.0 } else { rect.center().y };
-    painter.text(Pos2::new(rect.center().x, y), Align2::CENTER_CENTER, msg, FontId::proportional(13.0), p.muted_text);
+    painter.text(Pos2::new(rect.center().x, y), Align2::CENTER_CENTER, msg, FontId::proportional(14.0), p.muted_text);
     if can_load {
         let link = Rect::from_center_size(Pos2::new(rect.center().x, rect.center().y + 12.0), Vec2::new(80.0, 20.0));
         let resp = ui.interact(link, ui.id().with(("load", file)), Sense::click());
         if resp.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
-        painter.text(link.center(), Align2::CENTER_CENTER, "Load diff", FontId::proportional(13.0), p.accent);
+        painter.text(link.center(), Align2::CENTER_CENTER, "Load diff", FontId::proportional(14.0), p.accent);
         if resp.clicked() {
             store.force_load(file);
         }
@@ -771,7 +771,7 @@ pub fn file_header(ui: &mut Ui, store: &mut PRStore, p: &Palette, m: &DiffMetric
     if let Some((s, c)) = status {
         let r = Rect::from_center_size(Pos2::new(x + 6.0, mid), Vec2::splat(12.0));
         painter.rect_stroke(r, 2.0, Stroke::new(1.2, c), egui::StrokeKind::Inside);
-        painter.text(r.center(), Align2::CENTER_CENTER, s, FontId::proportional(10.0), c);
+        painter.text(r.center(), Align2::CENTER_CENTER, s, FontId::proportional(11.0), c);
         x += 20.0;
     }
     // Right side: Viewed toggle, then the open-thread count.
@@ -790,7 +790,7 @@ pub fn file_header(ui: &mut Ui, store: &mut PRStore, p: &Palette, m: &DiffMetric
     } else {
         painter.rect_stroke(bx, 2.5, Stroke::new(1.2, p.muted_text), egui::StrokeKind::Inside);
     }
-    painter.text(Pos2::new(vrect.left() + 26.0, mid), Align2::LEFT_CENTER, "Viewed", FontId::proportional(12.0), p.text);
+    painter.text(Pos2::new(vrect.left() + 26.0, mid), Align2::LEFT_CENTER, "Viewed", FontId::proportional(13.0), p.text);
     if vr.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
@@ -800,9 +800,11 @@ pub fn file_header(ui: &mut Ui, store: &mut PRStore, p: &Palette, m: &DiffMetric
     let mut right = vrect.left() - 14.0;
     if let Some(&n) = store.open_thread_count_by_path.get(f.path()) {
         if n > 0 {
-            let g = painter.layout_no_wrap(format!("💬 {n}"), FontId::proportional(11.0), p.muted_text);
+            let g = painter.layout_no_wrap(n.to_string(), FontId::proportional(12.0), p.muted_text);
             right -= g.size().x;
             painter.galley(Pos2::new(right, mid - g.size().y / 2.0), g, p.muted_text);
+            right -= 16.0;
+            super::icons::paint(&painter, Rect::from_min_size(Pos2::new(right, mid - 6.0), Vec2::splat(12.0)), super::icons::Icon::Comment, p.muted_text);
             right -= 10.0;
         }
     }
@@ -852,8 +854,8 @@ pub fn file_header(ui: &mut Ui, store: &mut PRStore, p: &Palette, m: &DiffMetric
     x += 22.0;
     // Diffstat and the five squares.
     let mut job = LayoutJob::default();
-    job.append(&format!("+{}", f.additions), 0.0, TextFormat::simple(FontId::proportional(12.0), p.add_marker));
-    job.append(&format!(" −{}", f.deletions), 0.0, TextFormat::simple(FontId::proportional(12.0), p.del_marker));
+    job.append(&format!("+{}", f.additions), 0.0, TextFormat::simple(FontId::proportional(13.0), p.add_marker));
+    job.append(&format!(" −{}", f.deletions), 0.0, TextFormat::simple(FontId::proportional(13.0), p.del_marker));
     let g = ui.fonts_mut(|fo| fo.layout_job(job));
     let sw = g.size().x;
     painter.galley(Pos2::new(x, mid - g.size().y / 2.0), g, p.text);
@@ -1025,7 +1027,7 @@ fn selection_bar(ui: &mut Ui, store: &mut PRStore, cs: &CanvasState, geo: &Geo, 
                     store.start_discuss(None, None);
                     *action = CanvasAction::OpenDiscussPanel;
                 }
-                ui.label(egui::RichText::new(if count == 1 { "1 line".to_string() } else { format!("{count} lines") }).size(11.0).color(p.muted_text));
+                ui.label(egui::RichText::new(if count == 1 { "1 line".to_string() } else { format!("{count} lines") }).size(12.0).color(p.muted_text));
             });
         });
     });

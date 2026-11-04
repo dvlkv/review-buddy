@@ -28,17 +28,13 @@ pub fn gh_button(ui: &mut Ui, text: &str, kind: BtnKind, enabled: bool) -> Respo
         BtnKind::Danger => (p.subtle, p.del_marker, p.border),
         BtnKind::Invisible => (Color32::TRANSPARENT, p.accent, Color32::TRANSPARENT),
     };
-    let btn = egui::Button::new(RichText::new(text).color(fg).size(12.0))
-        .fill(fill)
-        .stroke(Stroke::new(1.0, stroke))
-        .corner_radius(CornerRadius::same(6))
-        .min_size(Vec2::new(0.0, 24.0));
-    ui.add_enabled(enabled, btn)
+    let look = super::icons::Look { fill, fg, stroke, native: false, frame: kind != BtnKind::Invisible };
+    super::icons::button(ui, text, FontId::proportional(13.0), look, 26.0, enabled)
 }
 
 /// A rounded label like GitHub's "Pending" / "Outdated" badges.
 pub fn pill(ui: &mut Ui, text: &str, color: Color32, filled: bool) -> Response {
-    let font = FontId::proportional(10.5);
+    let font = FontId::proportional(11.5);
     let galley = ui.painter().layout_no_wrap(text.to_string(), font, if filled { Color32::WHITE } else { color });
     let size = galley.size() + Vec2::new(12.0, 4.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
@@ -48,9 +44,13 @@ pub fn pill(ui: &mut Ui, text: &str, color: Color32, filled: bool) -> Response {
     resp
 }
 
-/// A colored circle with the user's initial (avatars aren't downloaded).
+/// The user's GitHub avatar; a colored circle with their initial until it loads (or offline).
 pub fn avatar(ui: &mut Ui, login: &str, size: f32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    if let Some(tex) = super::avatars::get(ui.ctx(), login) {
+        egui::Image::new(&tex).corner_radius(CornerRadius::same((size / 2.0) as u8)).paint_at(ui, rect);
+        return resp.on_hover_text(login);
+    }
     let h = review_buddy_core::fnv1a_utf16(login);
     let hue = (h % 360) as f32 / 360.0;
     let c: Color32 = egui::ecolor::Hsva::new(hue, 0.45, 0.75, 1.0).into();
@@ -91,9 +91,9 @@ pub fn suggestion_preview(ui: &mut Ui, old: &[String], new: &[String]) {
         ui.set_width(ui.available_width());
         egui::Frame::new().fill(p.subtle).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("± Suggested change").strong().size(12.0));
+            ui.label(RichText::new("± Suggested change").strong().size(13.0));
         });
-        let mono = FontId::monospace(12.0);
+        let mono = FontId::monospace(13.0);
         for (lines, bg, marker, mc) in [(old, p.del_bg, "-", p.del_marker), (new, p.add_bg, "+", p.add_marker)] {
             for l in lines {
                 egui::Frame::new().fill(bg).inner_margin(egui::Margin::symmetric(8, 1)).show(ui, |ui| {
