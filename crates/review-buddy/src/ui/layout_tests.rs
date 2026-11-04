@@ -174,6 +174,10 @@ impl Harness {
         ctx.set_theme(if dark { egui::Theme::Dark } else { egui::Theme::Light });
         // Tooltips never show during the sweep (they're overlays; they can't shift layout).
         ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 1.0e6);
+        // `SWEEP_PPP=2` runs the sweep at Retina scale.
+        if let Some(ppp) = std::env::var("SWEEP_PPP").ok().and_then(|v| v.parse().ok()) {
+            ctx.set_pixels_per_point(ppp);
+        }
         let app = ReviewBuddyApp::headless(&ctx, DiffShape::SMALL);
         let mut h = Harness { ctx, app, time: 0.0, pointer: None, screen: SCREEN, first_frame_jumps: vec![] };
         h.settle();
@@ -204,8 +208,13 @@ impl Harness {
             }
             // Painted text only: windows and popups lay out in an invisible first pass
             // whose widget rects aren't shown.
+            let p0 = h.ctx.cumulative_pass_nr();
             let first = h.frame(vec![]).texts_only();
+            let p1 = h.ctx.cumulative_pass_nr();
             let second = h.frame(vec![]).texts_only();
+            if std::env::var("SWEEP_DEBUG").is_ok() {
+                eprintln!("after {}: first frame {} passes, second {}", step.describe(), p1 - p0, h.ctx.cumulative_pass_nr() - p1);
+            }
             for d in first.diff(&second) {
                 h.first_frame_jumps.push(format!("after {}: {d}", step.describe()));
             }
@@ -283,18 +292,32 @@ fn on_screen(r: &Q, screen: Vec2) -> bool {
     w > 0.5 && h > 0.5 && c.x > 1.0 && c.y > 1.0 && c.x < screen.x - 1.0 && c.y < screen.y - 1.0
 }
 
-/// Widgets whose own size may change when clicked: their label says something different
-/// afterwards by design (and nothing else on their row depends on their width).
-const CLICK_MAY_RESIZE: &[&str] = &[
-    // Cancel in the merge box goes back to the merge button.
-    "Cancel",
+/// Widgets whose own size may change when clicked: (scenario prefix, label). Each turns
+/// into something else by design.
+const CLICK_MAY_RESIZE: &[(&str, &str)] = &[
     // The "Reply…" placeholder turns into the reply editor.
-    "Reply…",
-    // The merge button turns into the "Confirm …" row, as on GitHub.
-    "Squash and merge",
-    "Merge pull request",
-    "Rebase and merge",
+    ("", "Reply…"),
+    // The merge button turns into the "Confirm …" row (as on GitHub), and Cancel back.
+    ("merge-", "Squash and merge"),
+    ("merge-", "Merge pull request"),
+    ("merge-", "Rebase and merge"),
+    ("merge-confirm", "Cancel"),
 ];
+
+/// Clicks that legitimately resize other widgets: (scenario prefix, clicked label).
+const SIBLINGS_MAY_RESIZE: &[(&str, &str)] = &[
+    // Panel toggles change the width everything else gets.
+    ("", "SidebarLeft"),
+    ("", "Sidebar"),
+    ("", "Sparkle"),
+    // Closing or reopening changes the state badge next to the title.
+    ("", "Close pull request"),
+    ("", "Reopen pull request"),
+];
+
+fn may_resize(name: &str, label: &str) -> bool {
+    CLICK_MAY_RESIZE.iter().any(|(prefix, l)| name.starts_with(prefix) && *l == label)
+}
 
 struct Report {
     problems: Vec<String>,
@@ -408,8 +431,22 @@ fn sweep_view(name: &str, steps: &[Step], scroll: Option<NodeId>, dark: bool, pr
         let after = h.frame(vec![]);
         if let Some(id) = id {
             if let (Some(a), Some(b)) = (base.nodes.get(&id), after.nodes.get(&id)) {
-                if size(&a.rect) != size(&b.rect) && !CLICK_MAY_RESIZE.contains(&a.label.as_str()) {
+                if size(&a.rect) != size(&b.rect) && !may_resize(name, &a.label) {
                     report.problems.push(format!("[{tag}] click {what}: own size {} -> {}", fmt_q(&a.rect), fmt_q(&b.rect)));
+                }
+            }
+            // Other widgets may move when a click changes the screen, but a widget that's
+            // still there (same id, role and label) must keep its size.
+            let clicked = base.nodes.get(&id).map(|n| n.label.as_str()).unwrap_or("");
+            let siblings_may_resize = SIBLINGS_MAY_RESIZE.iter().any(|(prefix, l)| name.starts_with(prefix) && *l == clicked);
+            for (oid, a) in &base.nodes {
+                if siblings_may_resize || *oid == id || a.label.is_empty() || matches!(a.role, Role::Unknown | Role::GenericContainer) {
+                    continue;
+                }
+                if let Some(b) = after.nodes.get(oid) {
+                    if b.role == a.role && b.label == a.label && size(&a.rect) != size(&b.rect) {
+                        report.problems.push(format!("[{tag}] click {what}: {:?} {:?} resized {} -> {}", a.role, a.label, fmt_q(&a.rect), fmt_q(&b.rect)));
+                    }
                 }
             }
         }
@@ -424,6 +461,8 @@ fn sweep_view(name: &str, steps: &[Step], scroll: Option<NodeId>, dark: bool, pr
     }
     base
 }
+
+const PREVIEW_TABLE: &str = "settext:Edge cases\n\n| Input | Expected | Notes |\n|---|---|---|\n| `[]` | `null` | empty list |\n| `[a]` | `a` | single item, the common case |\n\nAlso see `fetchUser`.";
 
 const BYPASS: &str = "Merge without waiting for requirements to be met (bypass rules)";
 
@@ -461,6 +500,10 @@ fn scenarios() -> Vec<(&'static str, Vec<Step>)> {
         ("discuss-inactive", vec![Cmd("demodiscuss"), Do(|a| a.state.current_pr_mut().unwrap().active_discuss_id = None)]),
         ("submit-pending", vec![Cmd("selectfirst"), Cmd("comment"), Cmd("typecomment:Off by one?"), Cmd("submit")]),
         ("summary-expanded", vec![Cmd("fakesummary:8"), Click("Show more")]),
+        // Chained re-layouts in one frame: a panel settling and a table learning its columns;
+        // a composer block resizing around a previewed table.
+        ("narrow-discuss-table", vec![Screen(960.0, 640.0), Cmd("demodiscuss:table")]),
+        ("composer-preview-table", vec![Cmd("selectfirst"), Cmd("comment"), Cmd(PREVIEW_TABLE), Click("Preview")]),
     ]
 }
 
@@ -501,4 +544,5 @@ fn layout_is_stable_on_hover_and_rerender() {
     }
     assert!(report.problems.is_empty(), "{} layout jumps", report.problems.len());
 }
+
 

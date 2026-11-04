@@ -135,11 +135,16 @@ pub fn spinner(ui: &mut Ui) {
 /// the content's height changes — first appearance, a growing input — lay the frame out
 /// again before it's shown, so the panel and what's next to it never jump a frame late.
 pub fn settle_panel(ui: &Ui, id: impl std::hash::Hash + std::fmt::Debug, r: &Response) {
-    let key = egui::Id::new(("panel-height", id));
-    let h = r.rect.height();
-    let old = ui.data(|d| d.get_temp::<f32>(key));
-    if old.is_none_or(|o| (o - h).abs() > 0.1) {
-        ui.data_mut(|d| d.insert_temp(key, h));
-        ui.ctx().request_discard("panel height changed");
+    settle_size(ui, ("panel-height", id), Vec2::new(0.0, r.rect.height()));
+}
+
+/// Re-lays the frame out when `size` differs from last frame's: for layouts that use the
+/// previous frame's measurements (panels, `stick_to_bottom` scroll areas, grids).
+pub fn settle_size(ui: &Ui, id: impl std::hash::Hash + std::fmt::Debug, size: Vec2) {
+    let key = egui::Id::new(("settle-size", id));
+    let old = ui.data(|d| d.get_temp::<Vec2>(key));
+    if old.is_none_or(|o| (o - size).length() > 0.1) {
+        ui.data_mut(|d| d.insert_temp(key, size));
+        ui.ctx().request_discard("measured size changed");
     }
 }

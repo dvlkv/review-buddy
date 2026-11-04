@@ -110,8 +110,21 @@ impl ReviewBuddyApp {
     }
 }
 
+/// Keeps scroll bars clear of a resizable panel edge: the edge's grab zone reaches a few
+/// points into the neighbors, and a press there must resize, not jump a scroll bar.
+const EDGE_GAP: f32 = 6.0;
+
+/// A left panel's frame, with `EDGE_GAP` before its resizable right edge.
+fn edge_frame(p: &Palette) -> egui::Frame {
+    egui::Frame::new().fill(p.panel).inner_margin(egui::Margin { right: EDGE_GAP as i8, ..Default::default() })
+}
+
 /// Zed-like visuals and spacing, for both the light and the dark style.
 fn install_style(ctx: &egui::Context) {
+    // Several things re-lay a frame out before it's shown (a new inline block, a table
+    // learning its columns, a panel whose content grew). They can chain within one frame,
+    // so allow a few passes; idle frames still take one (the layout sweep checks).
+    ctx.options_mut(|o| o.max_passes = std::num::NonZeroUsize::new(4).unwrap());
     ctx.all_styles_mut(|s| {
         s.visuals = Palette::new(s.visuals.dark_mode).visuals();
         s.spacing.item_spacing = egui::vec2(6.0, 4.0);
@@ -125,6 +138,7 @@ fn install_style(ctx: &egui::Context) {
         s.spacing.scroll = egui::style::ScrollStyle::floating();
         s.spacing.scroll.bar_width = 8.0;
         s.spacing.scroll.floating_allocated_width = 10.0;
+        s.interaction.resize_grab_radius_side = 4.0;
     });
 }
 
@@ -231,7 +245,7 @@ impl ReviewBuddyApp {
         // panel's scroll bar under another's resize handle). Each panel's maximum width
         // leaves room for the panels still to come; if even their minimums don't fit, the
         // inbox steps aside until the window is wider.
-        const CENTRAL_MIN: f32 = 320.0;
+        const CENTRAL_MIN: f32 = 360.0;
         const INBOX: (f32, f32) = (220.0, 420.0);
         const FILES: (f32, f32) = (180.0, 420.0);
         const DISCUSS: (f32, f32) = (300.0, 640.0);
@@ -243,14 +257,14 @@ impl ReviewBuddyApp {
         let show_inbox = self.state.ui.show_sidebar && ui.available_width() >= INBOX.0 + later(show_files, show_discuss);
         if show_inbox {
             let max = max_for(ui, INBOX, later(show_files, show_discuss));
-            egui::Panel::left("inbox").resizable(true).default_size(280.0f32.min(max)).size_range(INBOX.0..=max).show(ui, |ui| {
+            egui::Panel::left("inbox").frame(edge_frame(&p)).resizable(true).default_size(280.0f32.min(max)).size_range(INBOX.0..=max).show(ui, |ui| {
                 sidebar::sidebar(ui, &mut self.state);
             });
         }
         if let Some(r) = &current {
             if show_files {
                 let max = max_for(ui, FILES, later(false, show_discuss));
-                egui::Panel::left("files").resizable(true).default_size(250.0f32.min(max)).size_range(FILES.0..=max).show(ui, |ui| {
+                egui::Panel::left("files").frame(edge_frame(&p)).resizable(true).default_size(250.0f32.min(max)).size_range(FILES.0..=max).show(ui, |ui| {
                     let tree = self.view.trees.entry(r.clone()).or_default();
                     if let Some(s) = self.state.prs.get_mut(r) {
                         file_tree_view::file_tree(ui, s, tree);
@@ -269,7 +283,7 @@ impl ReviewBuddyApp {
                 }
             });
         }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(p.canvas)).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(p.canvas).inner_margin(egui::Margin { right: EDGE_GAP as i8, ..Default::default() })).show(ui, |ui| {
             self.detail(ui, &metrics);
         });
         self.sheets(&ctx);

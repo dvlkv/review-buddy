@@ -171,7 +171,7 @@ fn conversation(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState,
     // Transcript.
     egui::CentralPanel::default().frame(egui::Frame::new().fill(p.canvas)).show(ui, |ui| {
         let c = &store.controllers[id];
-        egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+        let out = egui::ScrollArea::vertical().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
             egui::Frame::new().inner_margin(Margin::same(12)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 10.0;
@@ -196,6 +196,12 @@ fn conversation(ui: &mut Ui, store: &mut PRStore, state: &mut DiscussPanelState,
                 }
             });
         });
+        // `stick_to_bottom` scrolls by last frame's content height: settle new content now.
+        // Both sizes: the bottom offset depends on the content and on the viewport.
+        super::common::settle_size(ui, ("discuss-transcript", id), out.content_size);
+        super::common::settle_size(ui, ("discuss-transcript-view", id), out.inner_rect.size());
+        let max_offset = (out.content_size.y - out.inner_rect.height()).max(0.0);
+        super::common::settle_size(ui, ("discuss-transcript-offset", id), egui::vec2(0.0, (out.state.offset.y - max_offset).abs().min(1.0)));
     });
 
     match intent {

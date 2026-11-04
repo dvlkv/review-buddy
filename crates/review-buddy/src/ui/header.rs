@@ -30,19 +30,24 @@ pub fn pr_header(ui: &mut Ui, store: &mut PRStore) -> bool {
         ui.spacing_mut().item_spacing.x = 6.0;
         state_badge(ui, &d, &p);
         avatar(ui, &d.author, 18.0);
-        ui.label(RichText::new(&d.author).strong().size(13.0));
-        ui.label(RichText::new("wants to merge into").size(13.0).color(p.muted_text));
+        // Labels never wrap inside the row: when space runs out, the next one moves to
+        // the next line whole (a wrapped label would squeeze to one letter per line).
+        let label = |ui: &mut Ui, t: RichText| ui.add(egui::Label::new(t).extend());
+        label(ui, RichText::new(&d.author).strong().size(13.0));
+        label(ui, RichText::new("wants to merge into").size(13.0).color(p.muted_text));
         branch(ui, &d.base_ref_name, &p);
         super::icons::icon(ui, super::icons::Icon::ArrowLeft, 12.0, p.muted_text);
         branch(ui, &d.head_ref_name, &p);
-        ui.label(RichText::new(format!("+{}", d.additions)).size(13.0).color(p.add_marker));
-        ui.label(RichText::new(format!("−{}", d.deletions)).size(13.0).color(p.del_marker));
+        label(ui, RichText::new(format!("+{}", d.additions)).size(13.0).color(p.add_marker));
+        label(ui, RichText::new(format!("−{}", d.deletions)).size(13.0).color(p.del_marker));
         let files = if d.changed_files == 1 { "1 file".to_string() } else { format!("{} files", d.changed_files) };
-        ui.label(RichText::new(files).size(13.0).color(p.muted_text));
-        // Right-aligned when there's room; otherwise they wrap onto the next line.
-        let room = ui.available_width() > 260.0;
-        let layout = if room { egui::Layout::right_to_left(egui::Align::Center) } else { egui::Layout::left_to_right(egui::Align::Center) };
-        ui.allocate_ui_with_layout(egui::vec2(ui.available_width().max(250.0), 24.0), layout, |ui| {
+        label(ui, RichText::new(files).size(13.0).color(p.muted_text));
+        // Right-aligned on this line when they fit, else on a line of their own: never
+        // wider than the space given (that would widen the whole column).
+        if ui.available_width() < 300.0 {
+            ui.end_row();
+        }
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 24.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Always here: shows/hides the summary, or generates one if there is none.
             let has_summary = store.summary.is_some() || store.summary_state.is_running();
             let shown = has_summary && !mem.summary_collapsed;
@@ -100,8 +105,16 @@ fn state_badge(ui: &mut Ui, d: &PRDetail, p: &Palette) {
 }
 
 pub fn branch(ui: &mut Ui, name: &str, p: &Palette) {
+    // Long branch names are cut at 200 pt; a pill that doesn't fit the rest of the line
+    // starts a new one (in a wrapping row), so it never overflows the column.
+    let font = egui::FontId::monospace(12.5);
+    let w = ui.fonts_mut(|f| f.layout_no_wrap(name.to_string(), font, Color32::WHITE).size().x).min(200.0) + 14.0;
+    if ui.layout().main_wrap && w > ui.available_width() {
+        ui.end_row();
+    }
     egui::Frame::new().fill(p.accent_bg).corner_radius(p.radius).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
-        let r = ui.add(egui::Label::new(RichText::new(name).monospace().size(12.5).color(p.accent)).sense(egui::Sense::click()));
+        ui.set_max_width(ui.available_width().min(200.0));
+        let r = ui.add(egui::Label::new(RichText::new(name).monospace().size(12.5).color(p.accent)).truncate().sense(egui::Sense::click()));
         if r.on_hover_text("Click to copy").clicked() {
             ui.ctx().copy_text(name.to_string());
         }
