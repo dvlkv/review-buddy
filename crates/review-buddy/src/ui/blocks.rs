@@ -54,9 +54,8 @@ fn thread_block(ui: &mut Ui, store: &mut PRStore, id: &str) {
                     }
                     if collapsed {
                         if let Some(first) = t.comments.first() {
-                            let w = ui.available_width() - 60.0;
-                            ui.add_sized(
-                                [w.max(40.0), 16.0],
+                            ui.set_max_width(ui.available_width() - 60.0);
+                            ui.add(
                                 egui::Label::new(
                                     RichText::new(format!("@{}: {}", first.author, first.body.replace('\n', " ")))
                                         .size(12.0)
