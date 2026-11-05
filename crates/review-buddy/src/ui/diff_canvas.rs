@@ -200,10 +200,14 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
         }
         handle_mouse(ui, store, cs, &geo, metrics, &resp, pointer.map(local), &mut action);
 
-        // Paint rows.
+        // Paint rows. A click while painting (collapse a file, mark it viewed, expand
+        // context) can rebuild the layout: everything after that point indexes the old
+        // rows, so stop and lay the frame out again with the new ones.
+        let version = store.layout_version;
+        let stale = |store: &PRStore| store.layout_version != version;
         let mut block_rows = vec![];
         for i in first..=last.max(first) {
-            if i >= layout_rows {
+            if i >= layout_rows || stale(store) {
                 break;
             }
             let row = store.layout.as_ref().unwrap().rows[i];
@@ -216,6 +220,11 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
                 RowKind::Placeholder => placeholder(ui, &painter, store, &p, row, rect),
                 RowKind::Block => block_rows.push((i, row, rect)),
             }
+        }
+        if stale(store) {
+            ui.ctx().request_discard("layout rebuilt while painting");
+            ui.ctx().request_repaint();
+            return;
         }
         // Hover "+" in the gutter.
         if let Some(h) = hover_hit {
@@ -232,6 +241,9 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
         // Inline blocks: real widgets; report their heights.
         let mut changed = false;
         for (i, row, rect) in block_rows {
+            if stale(store) {
+                break;
+            }
             let b = store.layout.as_ref().unwrap().blocks[row.a as usize].clone();
             let inner = Rect::from_min_size(rect.min, Vec2::new(width, 4000.0));
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).id_salt(("block", &b.id)));
@@ -256,6 +268,11 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
                 }
             }
         }
+        if stale(store) {
+            ui.ctx().request_discard("layout rebuilt while painting");
+            ui.ctx().request_repaint();
+            return;
+        }
         if changed {
             rebuild_offsets(store, cs, metrics);
             // The rows below were placed with the old height: lay the frame out again
@@ -276,7 +293,9 @@ pub fn diff_canvas(ui: &mut Ui, store: &mut PRStore, cs: &mut CanvasState, metri
             }
         }
 
-        selection_bar(ui, store, cs, &geo, origin, &mut action);
+        if !stale(store) {
+            selection_bar(ui, store, cs, &geo, origin, &mut action);
+        }
     });
     cs.scroll_y = out.state.offset.y;
     action

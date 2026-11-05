@@ -533,6 +533,28 @@ fn layout_sweep() {
     assert!(report.problems.is_empty(), "{} layout jumps over {} probes", report.problems.len(), report.probes);
 }
 
+/// Regression (crash in the field): marking a file viewed collapses it, which rebuilds the
+/// layout while the canvas is still painting rows from the old one.
+#[test]
+fn collapsing_the_last_file_while_painting_does_not_crash() {
+    fn to_last_file(app: &mut ReviewBuddyApp) {
+        let s = app.state.current_pr_mut().unwrap();
+        let l = s.layout.as_ref().unwrap();
+        s.pending_scroll = l.file_start_row.last().copied();
+    }
+    let mut h = Harness::new(&[Step::Do(to_last_file)], true);
+    let snap = h.frame(vec![]);
+    let last = h.app.state.current_pr().unwrap().files().len() - 1;
+    // The last file's header sits at the top of the diff: the topmost painted "Viewed".
+    let r = snap.texts.get("Viewed").and_then(|v| v.iter().filter(|r| r[1] > 40 * 100).min_by_key(|r| r[1])).copied().expect("a Viewed toggle on screen");
+    let at = center(&r);
+    h.move_to(Some(at));
+    h.button(at, true);
+    h.button(at, false);
+    h.settle();
+    assert!(h.app.state.current_pr().unwrap().options.collapsed.contains(&last), "the click should have collapsed the last file");
+}
+
 /// A quick subset that runs with the normal test suite.
 #[test]
 fn layout_is_stable_on_hover_and_rerender() {
