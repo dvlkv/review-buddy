@@ -20,7 +20,8 @@ pub fn sidebar(ui: &mut Ui, state: &mut AppState) {
 
     // Opaque bottom bar, laid out first so the list scrolls above it.
     let bar = egui::Panel::bottom("inbox_bar")
-        .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin::symmetric(10, 7)))
+        // Same height and fill as the status bar it sits beside.
+        .frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(10, 3)))
         .show_separator_line(true)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
