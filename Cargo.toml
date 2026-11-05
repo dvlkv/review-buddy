@@ -9,3 +9,5 @@ edition = "2021"
 [profile.release]
 opt-level = 3
 lto = "thin"
+# File and line numbers in crash-log backtraces.
+debug = "line-tables-only"
